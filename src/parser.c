@@ -49,7 +49,6 @@ pit_parser *pit_parser_from_lexer(pit_lexer *lex) {
 pit_value pit_parse(pit_runtime *rt, pit_parser *st) {
     char buf[256] = {0};
     pit_lex_token t = advance(st);
-    printf("token: %s\n", pit_lex_token_name(t));
     switch (t) {
     case PIT_LEX_TOKEN_ERROR:
         pit_error(rt, "encountered an error token while parsing");

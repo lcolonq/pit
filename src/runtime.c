@@ -231,21 +231,40 @@ pit_value_heavy *pit_deref(pit_runtime *rt, pit_ref p) {
     return pit_arena_idx(rt->values, p);
 }
 
-bool pit_is_cons(pit_runtime *rt, pit_value a) {
+bool pit_is_integer(pit_runtime *rt, pit_value a) {
+    (void) rt;
+    return pit_value_sort(a) == PIT_VALUE_SORT_INTEGER;
+}
+bool pit_is_double(pit_runtime *rt, pit_value a) {
+    (void) rt;
+    return pit_value_sort(a) == PIT_VALUE_SORT_DOUBLE;
+}
+bool pit_is_symbol(pit_runtime *rt, pit_value a) {
+    (void) rt;
+    return pit_value_sort(a) == PIT_VALUE_SORT_SYMBOL;
+}
+bool pit_is_value_heavy_sort(pit_runtime *rt, pit_value a, enum pit_value_heavy_sort e) {
     switch (pit_value_sort(a)) {
     case PIT_VALUE_SORT_REF:
         pit_value_heavy *ha = pit_deref(rt, a);
         if (!ha) { pit_error(rt, "bad ref"); return false; }
-        switch (ha->hsort) {
-        case PIT_VALUE_HEAVY_SORT_CONS:
-            return true;
-        default:
-            break;
-        }
+        return ha->hsort == e;
     default:
         break;
     }
     return false;
+}
+bool pit_is_cons(pit_runtime *rt, pit_value a) {
+    return pit_is_value_heavy_sort(rt, a, PIT_VALUE_HEAVY_SORT_CONS);
+}
+bool pit_is_array(pit_runtime *rt, pit_value a) {
+    return pit_is_value_heavy_sort(rt, a, PIT_VALUE_HEAVY_SORT_ARRAY);
+}
+bool pit_is_bytes(pit_runtime *rt, pit_value a) {
+    return pit_is_value_heavy_sort(rt, a, PIT_VALUE_HEAVY_SORT_BYTES);
+}
+bool pit_is_nativefunc(pit_runtime *rt, pit_value a) {
+    return pit_is_value_heavy_sort(rt, a, PIT_VALUE_HEAVY_SORT_NATIVEFUNC);
 }
 bool pit_eq(pit_value a, pit_value b) {
     return a == b;
@@ -426,4 +445,81 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
         pit_error(rt, "attempted to apply non-function value");
         return PIT_NIL;
     }
+}
+
+struct eval_stack {
+    i64 top, cap;
+    pit_value *data;
+};
+static struct eval_stack *eval_stack_new() {
+    struct eval_stack *ret = malloc(sizeof(*ret));
+    ret->top = 0;
+    ret->cap = 32;
+    ret->data = calloc(ret->cap, sizeof(pit_value));
+    return ret;
+}
+static void eval_stack_destroy(struct eval_stack *s) {
+    if (s) {
+        if (s->data) free(s->data);
+        free(s);
+    }
+}
+static void eval_stack_push(pit_runtime *rt, struct eval_stack *s, pit_value x) {
+    (void) rt;
+    s->data[s->top++] = x;
+    if (s->top >= s->cap) s->data = realloc(s->data, (s->cap <<= 1) * sizeof(pit_value));
+}
+static pit_value eval_stack_pop(pit_runtime *rt, struct eval_stack *s) {
+    if (s->top == 0) { pit_error(rt, "evaluation stack underflow"); return PIT_NIL; }
+    return s->data[--s->top];
+}
+
+pit_value pit_eval(pit_runtime *rt, pit_value top) {
+    struct eval_stack *expr_stack = eval_stack_new();
+    struct eval_stack *program = eval_stack_new();
+    eval_stack_push(rt, expr_stack, top);
+    // first, convert the expression tree into "polish notation" in program
+    while (expr_stack->top > 0) {
+        pit_value cur = eval_stack_pop(rt, expr_stack);
+        if (pit_is_cons(rt, cur)) { // compound expressions: function/macro application special forms
+            pit_value fsym = pit_car(rt, cur);
+            pit_value f = pit_fget(rt, fsym);
+            pit_value args = pit_cdr(rt, cur);
+            i64 argcount = 0;
+            while (args != PIT_NIL) {
+                eval_stack_push(rt, expr_stack, pit_car(rt, args));
+                args = pit_cdr(rt, args);
+                argcount += 1;
+            }
+            eval_stack_push(rt, program, pit_cons(rt, f, pit_integer_new(rt, argcount)));
+        } else if (pit_is_symbol(rt, cur)) { // unquoted symbols: variable lookup
+            eval_stack_push(rt, program, pit_get(rt, cur));
+        } else if (pit_is_double(rt, cur)) { // double literals
+            eval_stack_push(rt, program, cur);
+        } else if (pit_is_integer(rt, cur)) { // integer literals
+            eval_stack_push(rt, program, cur);
+        } else {
+            pit_error(rt, "unknown expression in eval");
+            goto end;
+        }
+    }
+    struct eval_stack *result_stack = eval_stack_new();
+    // then, execute the polish notation program from right to left
+    for (i64 idx = program->top - 1; idx >= 0; --idx) {
+        pit_value expr = program->data[idx];
+        if (pit_is_cons(rt, expr)) { // this is a function call
+            pit_value args = PIT_NIL;
+            for (i64 i = 0; i < pit_as_integer(rt, pit_cdr(rt, expr)); ++i) {
+                args = pit_cons(rt, eval_stack_pop(rt, result_stack), args);
+            }
+            eval_stack_push(rt, result_stack, pit_apply(rt, pit_car(rt, expr), args));
+        } else { // this is an atom
+            eval_stack_push(rt, result_stack, expr);
+        }
+    }
+end:
+    pit_value ret = eval_stack_pop(rt, result_stack);
+    eval_stack_destroy(expr_stack);
+    eval_stack_destroy(result_stack);
+    return ret;
 }

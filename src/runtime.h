@@ -29,7 +29,7 @@ u64 pit_value_data(pit_value v);
 struct pit_runtime;
 typedef pit_value (*pit_nativefunc)(struct pit_runtime *rt, pit_value args);
 typedef struct { // "heavy" values, the targets of refs
-    enum {
+    enum pit_value_heavy_sort {
         PIT_VALUE_HEAVY_SORT_CONS=0,
         PIT_VALUE_HEAVY_SORT_ARRAY,
         PIT_VALUE_HEAVY_SORT_BYTES,
@@ -80,7 +80,14 @@ pit_value pit_heavy_new(pit_runtime *rt);
 pit_value_heavy *pit_deref(pit_runtime *rt, pit_ref p);
 
 // convenient predicates
+bool pit_is_integer(pit_runtime *rt, pit_value a);
+bool pit_is_double(pit_runtime *rt, pit_value a);
+bool pit_is_symbol(pit_runtime *rt, pit_value a);
+bool pit_is_value_heavy_sort(pit_runtime *rt, pit_value a, enum pit_value_heavy_sort e);
 bool pit_is_cons(pit_runtime *rt, pit_value a);
+bool pit_is_array(pit_runtime *rt, pit_value a);
+bool pit_is_bytes(pit_runtime *rt, pit_value a);
+bool pit_is_nativefunc(pit_runtime *rt, pit_value a);
 bool pit_truthful(pit_value a);
 bool pit_eq(pit_value a, pit_value b);
 bool pit_equal(pit_runtime *rt, pit_value a, pit_value b);
@@ -108,4 +115,8 @@ pit_value pit_cdr(pit_runtime *rt, pit_value v);
 // working with functions
 pit_value pit_nativefunc_new(pit_runtime *rt, pit_nativefunc f);
 pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args);
+
+// evaluation!
+pit_value pit_eval(pit_runtime *rt, pit_value e);
+
 #endif

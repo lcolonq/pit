@@ -47,6 +47,7 @@ typedef struct {
     pit_value name;
     pit_value value;
     pit_value function;
+    bool is_macro;
 } pit_symtab_entry;
 
 typedef struct pit_runtime {
@@ -105,6 +106,9 @@ pit_value pit_get(pit_runtime *rt, pit_value sym);
 void pit_set(pit_runtime *rt, pit_value sym, pit_value v);
 pit_value pit_fget(pit_runtime *rt, pit_value sym);
 void pit_fset(pit_runtime *rt, pit_value sym, pit_value v);
+bool pit_is_symbol_macro(pit_runtime *rt, pit_value sym);
+void pit_symbol_is_macro(pit_runtime *rt, pit_value sym);
+void pit_mset(pit_runtime *rt, pit_value sym, pit_value v);
 
 // working with cons cells
 pit_value pit_cons(pit_runtime *rt, pit_value car, pit_value cdr);

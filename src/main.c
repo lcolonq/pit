@@ -11,6 +11,18 @@ pit_value test_print(pit_runtime *rt, pit_value args) {
     return x;
 }
 
+pit_value test_if(pit_runtime *rt, pit_value args) {
+    pit_value cform = pit_car(rt, args);
+    pit_value tform = pit_car(rt, pit_cdr(rt, args));
+    pit_value eform = pit_car(rt, pit_cdr(rt, pit_cdr(rt, args)));
+    pit_value c = pit_eval(rt, cform);
+    if (c != PIT_NIL) {
+        return pit_eval(rt, tform);
+    } else {
+        return pit_eval(rt, eform);
+    }
+}
+
 pit_value test_add(pit_runtime *rt, pit_value args) {
     i64 x = pit_as_integer(rt, pit_car(rt, args));
     i64 y = pit_as_integer(rt, pit_car(rt, pit_cdr(rt, args)));
@@ -31,6 +43,7 @@ int main(int argc, char **argv) {
     pit_fset(rt, pit_intern_cstr(rt, "print"), pit_nativefunc_new(rt, test_print));
     pit_fset(rt, pit_intern_cstr(rt, "+"), pit_nativefunc_new(rt, test_add));
     pit_fset(rt, pit_intern_cstr(rt, "-"), pit_nativefunc_new(rt, test_sub));
+    pit_mset(rt, pit_intern_cstr(rt, "if"), pit_nativefunc_new(rt, test_if));
 
     pit_lexer *lex = pit_lex_file(argv[1]);
 

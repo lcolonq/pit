@@ -349,6 +349,7 @@ pit_value pit_intern(pit_runtime *rt, u8 *nm, i64 len) {
     ent->name = pit_bytes_new(rt, nm, len);
     ent->value = PIT_NIL;
     ent->function = PIT_NIL;
+    ent->is_macro = false;
     rt->symtab_len += 1;
     return pit_symbol_new(rt, idx);
 }
@@ -380,6 +381,20 @@ void pit_fset(pit_runtime *rt, pit_value sym, pit_value v) {
     pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
     if (!ent) { pit_error(rt, "bad symbol"); return; }
     ent->function = v;
+}
+bool pit_is_symbol_macro(pit_runtime *rt, pit_value sym) {
+    pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
+    if (!ent) { pit_error(rt, "bad symbol"); return false; }
+    return ent->is_macro;
+}
+void pit_symbol_is_macro(pit_runtime *rt, pit_value sym) {
+    pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
+    if (!ent) { pit_error(rt, "bad symbol"); return; }
+    ent->is_macro = true;
+}
+void pit_mset(pit_runtime *rt, pit_value sym, pit_value v) {
+    pit_fset(rt, sym, v);
+    pit_symbol_is_macro(rt, sym);
 }
 
 pit_value pit_cons(pit_runtime *rt, pit_value car, pit_value cdr) {
@@ -485,26 +500,27 @@ pit_value pit_eval(pit_runtime *rt, pit_value top) {
             pit_value fsym = pit_car(rt, cur);
             pit_value f = pit_fget(rt, fsym);
             pit_value args = pit_cdr(rt, cur);
-            i64 argcount = 0;
-            while (args != PIT_NIL) {
-                eval_stack_push(rt, expr_stack, pit_car(rt, args));
-                args = pit_cdr(rt, args);
-                argcount += 1;
+            if (pit_is_symbol_macro(rt, fsym)) {
+                pit_value res = pit_apply(rt, f, args);
+                eval_stack_push(rt, expr_stack, res);
+            } else {
+                i64 argcount = 0;
+                while (args != PIT_NIL) {
+                    eval_stack_push(rt, expr_stack, pit_car(rt, args));
+                    args = pit_cdr(rt, args);
+                    argcount += 1;
+                }
+                eval_stack_push(rt, program, pit_cons(rt, f, pit_integer_new(rt, argcount)));
             }
-            eval_stack_push(rt, program, pit_cons(rt, f, pit_integer_new(rt, argcount)));
         } else if (pit_is_symbol(rt, cur)) { // unquoted symbols: variable lookup
             eval_stack_push(rt, program, pit_get(rt, cur));
-        } else if (pit_is_double(rt, cur)) { // double literals
+        } else { // other values: used literally
             eval_stack_push(rt, program, cur);
-        } else if (pit_is_integer(rt, cur)) { // integer literals
-            eval_stack_push(rt, program, cur);
-        } else {
-            pit_error(rt, "unknown expression in eval");
-            goto end;
         }
     }
     struct eval_stack *result_stack = eval_stack_new();
     // then, execute the polish notation program from right to left
+    // this has the nice consequence of putting the arguments in the right order
     for (i64 idx = program->top - 1; idx >= 0; --idx) {
         pit_value expr = program->data[idx];
         if (pit_is_cons(rt, expr)) { // this is a function call
@@ -517,9 +533,9 @@ pit_value pit_eval(pit_runtime *rt, pit_value top) {
             eval_stack_push(rt, result_stack, expr);
         }
     }
-end:
     pit_value ret = eval_stack_pop(rt, result_stack);
     eval_stack_destroy(expr_stack);
+    eval_stack_destroy(program);
     eval_stack_destroy(result_stack);
     return ret;
 }

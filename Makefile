@@ -1,4 +1,4 @@
-SRCS := src/main.c src/utils.c src/lexer.c src/parser.c src/runtime.c
+SRCS := src/main.c src/utils.c src/lexer.c src/parser.c src/runtime.c src/library.c
 OBJECTS := $(SRCS:src/%.c=build/%.o)
 EXE := pit
 

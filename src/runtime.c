@@ -7,6 +7,7 @@
 
 #include "utils.h"
 #include "runtime.h"
+#include "library.h"
 
 pit_arena *pit_arena_new(i64 capacity, i64 elem_size) {
     pit_arena *a = malloc(sizeof(pit_arena) + capacity * elem_size);
@@ -67,8 +68,14 @@ pit_runtime *pit_runtime_new() {
     ret->bytes = pit_arena_new(64 * 1024, sizeof(u8));
     ret->symtab = pit_arena_new(1024, sizeof(pit_symtab_entry));
     ret->symtab_len = 0;
+    ret->scratch = pit_arena_new(64 * 1024, sizeof(u8));
+    ret->expr_stack = pit_values_new(1024);
+    ret->result_stack = pit_values_new(1024);
+    ret->program = pit_runtime_eval_program_new(64 * 1024);
+    ret->saved_bindings = pit_values_new(1024);
     ret->error = PIT_NIL;
-    pit_intern_cstr(ret, "nil");
+    pit_intern_cstr(ret, "nil"); // nil must be the 0th symbol for PIT_NIL to work
+    pit_install_library_essential(ret);
     return ret;
 }
 
@@ -350,6 +357,7 @@ pit_value pit_intern(pit_runtime *rt, u8 *nm, i64 len) {
     ent->value = PIT_NIL;
     ent->function = PIT_NIL;
     ent->is_macro = false;
+    ent->is_special_form = false;
     rt->symtab_len += 1;
     return pit_symbol_new(rt, idx);
 }
@@ -361,6 +369,14 @@ pit_value pit_intern_cstr(pit_runtime *rt, char *nm) {
 pit_symtab_entry *pit_symtab_lookup(pit_runtime *rt, pit_value sym) {
     pit_symbol s = pit_as_symbol(rt, sym);
     return pit_arena_idx(rt->symtab, s);
+}
+bool pit_symbol_name_match(pit_runtime *rt, pit_value sym, u8 *buf, i64 len) {
+    pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
+    if (!ent) { pit_error(rt, "bad symbol"); return PIT_NIL; }
+    return pit_bytes_match(rt, ent->name, buf, len);
+}
+bool pit_symbol_name_match_cstr(pit_runtime *rt, pit_value sym, char *s) {
+    return pit_symbol_name_match(rt, sym, (u8 *) s, strlen(s));
 }
 pit_value pit_get(pit_runtime *rt, pit_value sym) {
     pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
@@ -396,6 +412,33 @@ void pit_mset(pit_runtime *rt, pit_value sym, pit_value v) {
     pit_fset(rt, sym, v);
     pit_symbol_is_macro(rt, sym);
 }
+bool pit_is_symbol_special_form(pit_runtime *rt, pit_value sym) {
+    pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
+    if (!ent) { pit_error(rt, "bad symbol"); return false; }
+    return ent->is_special_form;
+}
+void pit_symbol_is_special_form(pit_runtime *rt, pit_value sym) {
+    pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
+    if (!ent) { pit_error(rt, "bad symbol"); return; }
+    ent->is_special_form = true;
+}
+void pit_sfset(pit_runtime *rt, pit_value sym, pit_value v) {
+    pit_fset(rt, sym, v);
+    pit_symbol_is_special_form(rt, sym);
+}
+void pit_bind(pit_runtime *rt, pit_value sym, pit_value v) {
+    pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
+    if (!ent) { pit_error(rt, "bad symbol"); return; }
+    pit_values_push(rt, rt->saved_bindings, ent->value);
+    ent->value = v;
+}
+pit_value pit_unbind(pit_runtime *rt, pit_value sym) {
+    pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
+    if (!ent) { pit_error(rt, "bad symbol"); return PIT_NIL; }
+    pit_value old = ent->value;
+    ent->value = pit_values_pop(rt, rt->saved_bindings);
+    return old;
+}
 
 pit_value pit_cons(pit_runtime *rt, pit_value car, pit_value cdr) {
     pit_value ret = pit_heavy_new(rt);
@@ -408,7 +451,8 @@ pit_value pit_cons(pit_runtime *rt, pit_value car, pit_value cdr) {
 }
 
 pit_value pit_list(pit_runtime *rt, i64 num, ...) {
-    pit_value *temp = calloc(num, sizeof(pit_value));
+    pit_value temp[64];
+    if (num > 64) { pit_error(rt, "failed to create list of size %d\n", num); return PIT_NIL; }
     va_list elems;
     va_start(elems, num);
     for (i64 i = 0; i < num; ++i) {
@@ -462,80 +506,111 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
     }
 }
 
-struct eval_stack {
-    i64 top, cap;
-    pit_value *data;
-};
-static struct eval_stack *eval_stack_new() {
-    struct eval_stack *ret = malloc(sizeof(*ret));
+pit_values *pit_values_new(i64 capacity) {
+    i64 cap = capacity / sizeof(pit_value);
+    pit_values *ret = malloc(sizeof(*ret) + cap * sizeof(pit_value));
     ret->top = 0;
-    ret->cap = 32;
-    ret->data = calloc(ret->cap, sizeof(pit_value));
+    ret->cap = cap;
     return ret;
 }
-static void eval_stack_destroy(struct eval_stack *s) {
-    if (s) {
-        if (s->data) free(s->data);
-        free(s);
-    }
-}
-static void eval_stack_push(pit_runtime *rt, struct eval_stack *s, pit_value x) {
+void pit_values_push(pit_runtime *rt, pit_values *s, pit_value x) {
     (void) rt;
     s->data[s->top++] = x;
-    if (s->top >= s->cap) s->data = realloc(s->data, (s->cap <<= 1) * sizeof(pit_value));
+    if (s->top >= s->cap) { pit_error(rt, "evaluation stack overflow"); }
 }
-static pit_value eval_stack_pop(pit_runtime *rt, struct eval_stack *s) {
+pit_value pit_values_pop(pit_runtime *rt, pit_values *s) {
     if (s->top == 0) { pit_error(rt, "evaluation stack underflow"); return PIT_NIL; }
     return s->data[--s->top];
 }
 
+pit_runtime_eval_program *pit_runtime_eval_program_new(i64 capacity) {
+    i64 cap = capacity / sizeof(pit_runtime_eval_program_entry);
+    pit_runtime_eval_program *ret = malloc(sizeof(*ret) + cap * sizeof(pit_runtime_eval_program_entry));
+    ret->top = 0;
+    ret->cap = cap;
+    return ret;
+}
+void pit_runtime_eval_program_push(pit_runtime *rt, pit_runtime_eval_program *s, pit_runtime_eval_program_entry x) {
+    (void) rt;
+    s->data[s->top++] = x;
+    if (s->top >= s->cap) { pit_error(rt, "evaluation program overflow"); }
+}
+
 pit_value pit_eval(pit_runtime *rt, pit_value top) {
-    struct eval_stack *expr_stack = eval_stack_new();
-    struct eval_stack *program = eval_stack_new();
-    eval_stack_push(rt, expr_stack, top);
+    i64 expr_stack_reset = rt->expr_stack->top;
+    i64 result_stack_reset = rt->result_stack->top;
+    i64 program_reset = rt->program->top;
+    pit_values_push(rt, rt->expr_stack, top);
     // first, convert the expression tree into "polish notation" in program
-    while (expr_stack->top > 0) {
-        pit_value cur = eval_stack_pop(rt, expr_stack);
+    while (rt->expr_stack->top > 0) {
+        pit_value cur = pit_values_pop(rt, rt->expr_stack);
         if (pit_is_cons(rt, cur)) { // compound expressions: function/macro application special forms
             pit_value fsym = pit_car(rt, cur);
             pit_value f = pit_fget(rt, fsym);
             pit_value args = pit_cdr(rt, cur);
-            if (pit_is_symbol_macro(rt, fsym)) {
+            if (pit_is_symbol_special_form(rt, fsym)) { // special forms
+                // special forms are nativefuncs that directly manipulate the stacks
+                // basically macros, but we don't need to evaluate the return value
+                pit_apply(rt, f, args);
+            } else if (pit_is_symbol_macro(rt, fsym)) { // macros
                 pit_value res = pit_apply(rt, f, args);
-                eval_stack_push(rt, expr_stack, res);
-            } else {
+                pit_values_push(rt, rt->expr_stack, res);
+            } else { // normal functions
                 i64 argcount = 0;
                 while (args != PIT_NIL) {
-                    eval_stack_push(rt, expr_stack, pit_car(rt, args));
+                    pit_values_push(rt, rt->expr_stack, pit_car(rt, args));
                     args = pit_cdr(rt, args);
                     argcount += 1;
                 }
-                eval_stack_push(rt, program, pit_cons(rt, f, pit_integer_new(rt, argcount)));
+                pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
+                    .sort = EVAL_PROGRAM_ENTRY_APPLY,
+                    .apply.arity = argcount,
+                    .apply.func = f,
+                });
             }
         } else if (pit_is_symbol(rt, cur)) { // unquoted symbols: variable lookup
-            eval_stack_push(rt, program, pit_get(rt, cur));
-        } else { // other values: used literally
-            eval_stack_push(rt, program, cur);
+            pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
+                .sort = EVAL_PROGRAM_ENTRY_LITERAL,
+                .literal = pit_get(rt, cur),
+            });
+        } else { // other expressions evaluate to themselves!
+            pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
+                .sort = EVAL_PROGRAM_ENTRY_LITERAL,
+                .literal = cur,
+            });
         }
     }
-    struct eval_stack *result_stack = eval_stack_new();
     // then, execute the polish notation program from right to left
     // this has the nice consequence of putting the arguments in the right order
-    for (i64 idx = program->top - 1; idx >= 0; --idx) {
-        pit_value expr = program->data[idx];
-        if (pit_is_cons(rt, expr)) { // this is a function call
+    for (i64 idx = rt->program->top - 1; idx >= program_reset; --idx) {
+        pit_runtime_eval_program_entry *ent = &rt->program->data[idx];
+        switch (ent->sort) {
+        case EVAL_PROGRAM_ENTRY_LITERAL:
+            pit_values_push(rt, rt->result_stack, ent->literal);
+            break;
+        case EVAL_PROGRAM_ENTRY_APPLY:
             pit_value args = PIT_NIL;
-            for (i64 i = 0; i < pit_as_integer(rt, pit_cdr(rt, expr)); ++i) {
-                args = pit_cons(rt, eval_stack_pop(rt, result_stack), args);
+            for (i64 i = 0; i < ent->apply.arity; ++i) {
+                args = pit_cons(rt, pit_values_pop(rt, rt->result_stack), args);
             }
-            eval_stack_push(rt, result_stack, pit_apply(rt, pit_car(rt, expr), args));
-        } else { // this is an atom
-            eval_stack_push(rt, result_stack, expr);
+            pit_values_push(rt, rt->result_stack, pit_apply(rt, ent->apply.func, args));
+            break;
+        case EVAL_PROGRAM_ENTRY_BIND:
+            pit_value v = pit_values_pop(rt, rt->result_stack);
+            pit_bind(rt, ent->bind, v);
+            break;
+        case EVAL_PROGRAM_ENTRY_UNBIND:
+            pit_unbind(rt, ent->unbind);
+            break;
+        default:
+            pit_error(rt, "unknown program entry");
+            goto end;
         }
     }
-    pit_value ret = eval_stack_pop(rt, result_stack);
-    eval_stack_destroy(expr_stack);
-    eval_stack_destroy(program);
-    eval_stack_destroy(result_stack);
+end:
+    pit_value ret = pit_values_pop(rt, rt->result_stack);
+    rt->expr_stack->top = expr_stack_reset;
+    rt->result_stack->top = result_stack_reset;
+    rt->program->top = program_reset;
     return ret;
 }

@@ -57,17 +57,22 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st) {
         pit_error(rt, "end-of-file while parsing");
         return PIT_NIL;
     case PIT_LEX_TOKEN_LPAREN: {
-        i64 arg = 0; i64 args_cap = 32;
-        pit_value *args = calloc(args_cap, sizeof(pit_value));
+        // to construct a cons-list, we need the arguments "backwards"
+        // we could reverse or build up a temporary list
+        // (or use non-tail recursion, which is basically the temporary list on the stack)
+        // we choose to build a temporary list on the scratch arena
+        i64 scratch_reset = rt->scratch->next;
         while (!match(st, PIT_LEX_TOKEN_RPAREN)) {
-            args[arg++] = pit_parse(rt, st);
+            pit_value *cell = pit_arena_alloc_bulk(rt->scratch, sizeof(pit_value));
+            *cell = pit_parse(rt, st);
             if (rt->error != PIT_NIL) return PIT_NIL; // if we hit an error, stop!
-            if (arg >= args_cap) args = realloc(args, (args_cap <<= 1) * sizeof(pit_value));
         }
         pit_value ret = PIT_NIL;
-        for (int i = 0; i < arg; ++i) {
-            ret = pit_cons(rt, args[arg - i - 1], ret);
+        for (i64 i = rt->scratch->next - sizeof(pit_value); i >= scratch_reset; i -= sizeof(pit_value)) {
+            pit_value *v = pit_arena_idx(rt->scratch, i);
+            ret = pit_cons(rt, *v, ret);
         }
+        rt->scratch->next = scratch_reset;
         return ret;
     }
     case PIT_LEX_TOKEN_QUOTE:

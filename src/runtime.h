@@ -4,13 +4,19 @@
 #include "types.h"
 #include "utils.h"
 
+struct pit_runtime;
+
+// arenas
 typedef struct {
     i64 elem_size, capacity, next;
     u8 data[];
 } pit_arena;
 pit_arena *pit_arena_new(i64 capacity, i64 elem_size);
 i32 pit_arena_alloc_idx(pit_arena *a);
+i32 pit_arena_alloc_bulk_idx(pit_arena *a, i64 num);
+void *pit_arena_idx(pit_arena *a, i32 idx);
 void *pit_arena_alloc(pit_arena *a);
+void *pit_arena_alloc_bulk(pit_arena *a, i64 num);
 
 // nil is always the symbol with index 0
 #define PIT_NIL 0b1111111111110100000000000000000000000000000000000000000000000000
@@ -26,7 +32,14 @@ typedef u64 pit_value;
 enum pit_value_sort pit_value_sort(pit_value v);
 u64 pit_value_data(pit_value v);
 
-struct pit_runtime;
+typedef struct {
+    i64 top, cap;
+    pit_value data[];
+} pit_values;
+pit_values *pit_values_new(i64 capacity);
+void pit_values_push(struct pit_runtime *rt, pit_values *s, pit_value x);
+pit_value pit_values_pop(struct pit_runtime *rt, pit_values *s);
+
 typedef pit_value (*pit_nativefunc)(struct pit_runtime *rt, pit_value args);
 typedef struct { // "heavy" values, the targets of refs
     enum pit_value_heavy_sort {
@@ -47,16 +60,42 @@ typedef struct {
     pit_value name;
     pit_value value;
     pit_value function;
-    bool is_macro;
+    bool is_macro, is_special_form;
 } pit_symtab_entry;
 
-typedef struct pit_runtime {
-    pit_arena *values;
-    pit_arena *bytes;
-    pit_arena *symtab; i64 symtab_len;
-    pit_value error;
-} pit_runtime;
+// "programs"; vectors of "instructions" for a very simple VM used by the evaluator
+typedef struct {
+    enum {
+        EVAL_PROGRAM_ENTRY_LITERAL,
+        EVAL_PROGRAM_ENTRY_APPLY,
+        EVAL_PROGRAM_ENTRY_BIND,
+        EVAL_PROGRAM_ENTRY_UNBIND,
+    } sort;
+    union {
+        pit_value literal;
+        struct { i64 arity; pit_value func; } apply;
+        pit_value bind; // symbol to bind
+        pit_value unbind; // symbol to unbind
+    };
+} pit_runtime_eval_program_entry;
+typedef struct {
+    i64 top, cap;
+    pit_runtime_eval_program_entry data[];
+} pit_runtime_eval_program;
+pit_runtime_eval_program *pit_runtime_eval_program_new(i64 capacity);
+void pit_runtime_eval_program_push(struct pit_runtime *rt, pit_runtime_eval_program *s, pit_runtime_eval_program_entry x);
 
+typedef struct pit_runtime {
+    pit_arena *values; // all heavy values - effectively an array of pit_value_heavy
+    pit_arena *bytes; // all bytestrings (including symbol names)
+    pit_arena *symtab; i64 symtab_len; // all symbols - effectively an array of pit_symtab_entry
+    pit_arena *scratch; // temporary arena used during parsing and evaluation
+    pit_values *saved_bindings; // stack used to save old values of bindings to be restored ("shallow binding")
+    pit_values *expr_stack; // stack of subexpressions to evaluate during evaluation
+    pit_values *result_stack; // stack of intermediate values during evaluation
+    pit_runtime_eval_program *program; // intermediate stack-based program constructed during evaluation
+    pit_value error; // error value - if this is non-nil, an error has occured! only tracks the first error
+} pit_runtime;
 pit_runtime *pit_runtime_new();
 
 i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v);
@@ -101,6 +140,8 @@ bool pit_bytes_match(pit_runtime *rt, pit_value v, u8 *buf, i64 len);
 // working with the symbol table
 pit_value pit_intern(pit_runtime *rt, u8 *nm, i64 len);
 pit_value pit_intern_cstr(pit_runtime *rt, char *nm);
+bool pit_symbol_name_match(pit_runtime *rt, pit_value sym, u8 *buf, i64 len);
+bool pit_symbol_name_match_cstr(pit_runtime *rt, pit_value sym, char *s);
 pit_symtab_entry *pit_symtab_lookup(pit_runtime *rt, pit_value sym);
 pit_value pit_get(pit_runtime *rt, pit_value sym);
 void pit_set(pit_runtime *rt, pit_value sym, pit_value v);
@@ -109,6 +150,11 @@ void pit_fset(pit_runtime *rt, pit_value sym, pit_value v);
 bool pit_is_symbol_macro(pit_runtime *rt, pit_value sym);
 void pit_symbol_is_macro(pit_runtime *rt, pit_value sym);
 void pit_mset(pit_runtime *rt, pit_value sym, pit_value v);
+bool pit_is_symbol_special_form(pit_runtime *rt, pit_value sym);
+void pit_symbol_is_special_form(pit_runtime *rt, pit_value sym);
+void pit_sfset(pit_runtime *rt, pit_value sym, pit_value v);
+void pit_bind(pit_runtime *rt, pit_value sym, pit_value v);
+pit_value pit_unbind(pit_runtime *rt, pit_value sym);
 
 // working with cons cells
 pit_value pit_cons(pit_runtime *rt, pit_value car, pit_value cdr);

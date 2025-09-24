@@ -43,13 +43,15 @@ pit_value pit_values_pop(struct pit_runtime *rt, pit_values *s);
 typedef pit_value (*pit_nativefunc)(struct pit_runtime *rt, pit_value args);
 typedef struct { // "heavy" values, the targets of refs
     enum pit_value_heavy_sort {
-        PIT_VALUE_HEAVY_SORT_CONS=0,
-        PIT_VALUE_HEAVY_SORT_ARRAY,
-        PIT_VALUE_HEAVY_SORT_BYTES,
-        PIT_VALUE_HEAVY_SORT_FUNC,
-        PIT_VALUE_HEAVY_SORT_NATIVEFUNC,
+        PIT_VALUE_HEAVY_SORT_CELL=0, // "value cell" - basically, a "location" referred to by a variable binding
+        PIT_VALUE_HEAVY_SORT_CONS, // cons cell - a pair of two values
+        PIT_VALUE_HEAVY_SORT_ARRAY, // fixed-size array of values
+        PIT_VALUE_HEAVY_SORT_BYTES, // bytestring
+        PIT_VALUE_HEAVY_SORT_FUNC, // Lisp closure
+        PIT_VALUE_HEAVY_SORT_NATIVEFUNC, // native function
     } hsort;
     union {
+        pit_value cell;
         struct { pit_value car, cdr; } cons;
         struct { pit_value *data; i64 len; } array;
         struct { u8 *data; i64 len; } bytes;
@@ -59,9 +61,9 @@ typedef struct { // "heavy" values, the targets of refs
 } pit_value_heavy;
 
 typedef struct {
-    pit_value name;
-    pit_value value;
-    pit_value function;
+    pit_value name; // ref to bytestring
+    pit_value value; // ref to cell
+    pit_value function; // ref to cell
     bool is_macro, is_special_form;
 } pit_symtab_entry;
 
@@ -70,14 +72,10 @@ typedef struct {
     enum {
         EVAL_PROGRAM_ENTRY_LITERAL,
         EVAL_PROGRAM_ENTRY_APPLY,
-        EVAL_PROGRAM_ENTRY_BIND,
-        EVAL_PROGRAM_ENTRY_UNBIND,
     } sort;
     union {
         pit_value literal;
         i64 apply; // arity of application
-        pit_value bind; // symbol to bind
-        pit_value unbind; // symbol to unbind
     };
 } pit_runtime_eval_program_entry;
 typedef struct {
@@ -126,11 +124,12 @@ bool pit_is_integer(pit_runtime *rt, pit_value a);
 bool pit_is_double(pit_runtime *rt, pit_value a);
 bool pit_is_symbol(pit_runtime *rt, pit_value a);
 bool pit_is_value_heavy_sort(pit_runtime *rt, pit_value a, enum pit_value_heavy_sort e);
+bool pit_is_cell(pit_runtime *rt, pit_value a);
 bool pit_is_cons(pit_runtime *rt, pit_value a);
 bool pit_is_array(pit_runtime *rt, pit_value a);
 bool pit_is_bytes(pit_runtime *rt, pit_value a);
+bool pit_is_func(pit_runtime *rt, pit_value a);
 bool pit_is_nativefunc(pit_runtime *rt, pit_value a);
-bool pit_truthful(pit_value a);
 bool pit_eq(pit_value a, pit_value b);
 bool pit_equal(pit_runtime *rt, pit_value a, pit_value b);
 
@@ -157,6 +156,11 @@ void pit_symbol_is_special_form(pit_runtime *rt, pit_value sym);
 void pit_sfset(pit_runtime *rt, pit_value sym, pit_value v);
 void pit_bind(pit_runtime *rt, pit_value sym, pit_value v);
 pit_value pit_unbind(pit_runtime *rt, pit_value sym);
+
+// working with cells
+pit_value pit_cell_new(pit_runtime *rt, pit_value v);
+pit_value pit_cell_get(pit_runtime *rt, pit_value cell);
+void pit_cell_set(pit_runtime *rt, pit_value cell, pit_value v);
 
 // working with cons cells
 pit_value pit_cons(pit_runtime *rt, pit_value car, pit_value cdr);

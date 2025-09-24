@@ -75,6 +75,8 @@ pit_runtime *pit_runtime_new() {
     ret->saved_bindings = pit_values_new(1024);
     ret->error = PIT_NIL;
     pit_intern_cstr(ret, "nil"); // nil must be the 0th symbol for PIT_NIL to work
+    pit_value truth = pit_intern_cstr(ret, "t");
+    pit_set(ret, truth, truth);
     pit_install_library_essential(ret);
     return ret;
 }
@@ -107,7 +109,15 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v) {
         if (!h) snprintf(buf, len, "<ref %d>", r);
         else {
             switch (h->hsort) {
-            case PIT_VALUE_HEAVY_SORT_CONS:
+            case PIT_VALUE_HEAVY_SORT_CELL: {
+                char *end = buf + len;
+                char *start = buf;
+                *(buf++) = '{';
+                buf += pit_dump(rt, buf, end - buf, pit_car(rt, h->cell));
+                *(buf++) = '}';
+                return buf - start;
+            }
+            case PIT_VALUE_HEAVY_SORT_CONS: {
                 char *end = buf + len;
                 char *start = buf;
                 pit_value cur = v;
@@ -126,6 +136,7 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v) {
                 *start = '(';
                 *(buf++) = ')';
                 return buf - start;
+            }
             case PIT_VALUE_HEAVY_SORT_BYTES:
                 buf[0] = '"';
                 i64 i = 1;
@@ -261,6 +272,9 @@ bool pit_is_value_heavy_sort(pit_runtime *rt, pit_value a, enum pit_value_heavy_
     }
     return false;
 }
+bool pit_is_cell(pit_runtime *rt, pit_value a) {
+    return pit_is_value_heavy_sort(rt, a, PIT_VALUE_HEAVY_SORT_CELL);
+}
 bool pit_is_cons(pit_runtime *rt, pit_value a) {
     return pit_is_value_heavy_sort(rt, a, PIT_VALUE_HEAVY_SORT_CONS);
 }
@@ -293,6 +307,8 @@ bool pit_equal(pit_runtime *rt, pit_value a, pit_value b) {
         if (!hb) { pit_error(rt, "bad ref"); return false; }
         if (ha->hsort != hb->hsort) return false;
         switch (ha->hsort) {
+        case PIT_VALUE_HEAVY_SORT_CELL:
+            return pit_equal(rt, ha->cell, hb->cell);
         case PIT_VALUE_HEAVY_SORT_CONS:
             return pit_equal(rt, ha->cons.car, hb->cons.car) && pit_equal(rt, ha->cons.cdr, hb->cons.cdr);
         case PIT_VALUE_HEAVY_SORT_ARRAY:
@@ -386,25 +402,37 @@ bool pit_symbol_name_match(pit_runtime *rt, pit_value sym, u8 *buf, i64 len) {
 bool pit_symbol_name_match_cstr(pit_runtime *rt, pit_value sym, char *s) {
     return pit_symbol_name_match(rt, sym, (u8 *) s, strlen(s));
 }
-pit_value pit_get(pit_runtime *rt, pit_value sym) {
+pit_value pit_get_value_cell(pit_runtime *rt, pit_value sym) {
     pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
     if (!ent) { pit_error(rt, "bad symbol"); return PIT_NIL; }
     return ent->value;
 }
-void pit_set(pit_runtime *rt, pit_value sym, pit_value v) {
-    pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
-    if (!ent) { pit_error(rt, "bad symbol"); return; }
-    ent->value = v;
-}
-pit_value pit_fget(pit_runtime *rt, pit_value sym) {
+pit_value pit_get_function_cell(pit_runtime *rt, pit_value sym) {
     pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
     if (!ent) { pit_error(rt, "bad symbol"); return PIT_NIL; }
     return ent->function;
 }
+pit_value pit_get(pit_runtime *rt, pit_value sym) {
+    return pit_cell_get(rt, pit_get_value_cell(rt, sym));
+}
+void pit_set(pit_runtime *rt, pit_value sym, pit_value v) {
+    pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
+    if (!ent) { pit_error(rt, "bad symbol"); return; }
+    if (pit_value_sort(ent->value) != PIT_VALUE_SORT_REF) {
+        ent->value = pit_cell_new(rt, PIT_NIL);
+    }
+    pit_cell_set(rt, ent->value, v);
+}
+pit_value pit_fget(pit_runtime *rt, pit_value sym) {
+    return pit_cell_get(rt, pit_get_function_cell(rt, sym));
+}
 void pit_fset(pit_runtime *rt, pit_value sym, pit_value v) {
     pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
     if (!ent) { pit_error(rt, "bad symbol"); return; }
-    ent->function = v;
+    if (pit_value_sort(ent->function) != PIT_VALUE_SORT_REF) {
+        ent->function = pit_cell_new(rt, PIT_NIL);
+    }
+    pit_cell_set(rt, ent->function, v);
 }
 bool pit_is_symbol_macro(pit_runtime *rt, pit_value sym) {
     pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
@@ -434,11 +462,11 @@ void pit_sfset(pit_runtime *rt, pit_value sym, pit_value v) {
     pit_fset(rt, sym, v);
     pit_symbol_is_special_form(rt, sym);
 }
-void pit_bind(pit_runtime *rt, pit_value sym, pit_value v) {
+void pit_bind(pit_runtime *rt, pit_value sym, pit_value cell) {
     pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
     if (!ent) { pit_error(rt, "bad symbol"); return; }
     pit_values_push(rt, rt->saved_bindings, ent->value);
-    ent->value = v;
+    ent->value = cell;
 }
 pit_value pit_unbind(pit_runtime *rt, pit_value sym) {
     pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
@@ -446,6 +474,41 @@ pit_value pit_unbind(pit_runtime *rt, pit_value sym) {
     pit_value old = ent->value;
     ent->value = pit_values_pop(rt, rt->saved_bindings);
     return old;
+}
+
+pit_value pit_cell_new(pit_runtime *rt, pit_value v) {
+    pit_value ret = pit_heavy_new(rt);
+    pit_value_heavy *h = pit_deref(rt, ret);
+    if (!h) { pit_error(rt, "failed to create new heavy value for cell"); return PIT_NIL; }
+    h->hsort = PIT_VALUE_HEAVY_SORT_CELL;
+    h->cell = v;
+    return ret;
+}
+pit_value pit_cell_get(pit_runtime *rt, pit_value cell) {
+    if (pit_value_sort(cell) != PIT_VALUE_SORT_REF) {
+        pit_error(rt, "cell value is not ref");
+        return PIT_NIL;
+    }
+    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, cell));
+    if (!h) { pit_error(rt, "bad ref"); return PIT_NIL; }
+    if (h->hsort != PIT_VALUE_HEAVY_SORT_CELL) {
+        pit_error(rt, "cell value ref does not point to cell");
+        return PIT_NIL;
+    }
+    return h->cell;
+}
+void pit_cell_set(pit_runtime *rt, pit_value cell, pit_value v) {
+    if (pit_value_sort(cell) != PIT_VALUE_SORT_REF) {
+        pit_error(rt, "cell value is not ref");
+        return;
+    }
+    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, cell));
+    if (!h) { pit_error(rt, "bad ref"); return; }
+    if (h->hsort != PIT_VALUE_HEAVY_SORT_CELL) {
+        pit_error(rt, "cell value ref does not point to cell");
+        return;
+    }
+    h->cell = v;
 }
 
 pit_value pit_cons(pit_runtime *rt, pit_value car, pit_value cdr) {
@@ -527,14 +590,6 @@ pit_value pit_contains_eq(pit_runtime *rt, pit_value needle, pit_value haystack)
     return PIT_NIL;
 }
 
-static pit_value extract_let_binds(pit_runtime *rt, pit_value tail, pit_value binds) {
-    pit_value ret = tail;
-    while (binds != PIT_NIL) {
-        ret = pit_cons(rt, pit_car(rt, pit_car(rt, binds)), ret);
-        binds = pit_cdr(rt, binds);
-    }
-    return ret;
-}
 pit_value pit_free_vars(pit_runtime *rt, pit_value args, pit_value body) {
     i64 expr_stack_reset = rt->expr_stack->top;
     pit_value bound = args;
@@ -577,8 +632,8 @@ pit_value pit_lambda(pit_runtime *rt, pit_value args, pit_value body) {
     pit_value env = PIT_NIL;
     while (freevars != PIT_NIL) {
         pit_value sym = pit_car(rt, freevars);
-        pit_value v = pit_get(rt, sym);
-        env = pit_cons(rt, pit_cons(rt, sym, v), env);
+        pit_value cell = pit_get_value_cell(rt, sym);
+        env = pit_cons(rt, pit_cons(rt, sym, cell), env);
         freevars = pit_cdr(rt, freevars);
     }
     h->hsort = PIT_VALUE_HEAVY_SORT_FUNC;
@@ -615,7 +670,8 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
             pit_value anames = h->func.args;
             while (anames != PIT_NIL) {
                 pit_value nm = pit_car(rt, anames);
-                pit_bind(rt, nm, pit_car(rt, args));
+                pit_value c = pit_cell_new(rt, pit_car(rt, args));
+                pit_bind(rt, nm, c);
                 bound = pit_cons(rt, nm, bound);
                 args = pit_cdr(rt, args);
                 anames = pit_cdr(rt, anames);
@@ -626,8 +682,7 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
                 pit_value b = pit_car(rt, env);
                 pit_value nm = pit_car(rt, b);
                 pit_value v = pit_get(rt, nm);
-                printf("updating closure\n");
-                pit_setcdr(rt, b, v);
+                pit_cell_set(rt, pit_cdr(rt, b), v);
                 env = pit_cdr(rt, env);
             }
             pit_value ret = pit_eval(rt, h->func.body);
@@ -853,13 +908,6 @@ pit_value pit_eval(pit_runtime *rt, pit_value top) {
                 args = pit_cons(rt, pit_values_pop(rt, rt->result_stack), args);
             }
             pit_values_push(rt, rt->result_stack, pit_apply(rt, f, args));
-            break;
-        case EVAL_PROGRAM_ENTRY_BIND:
-            pit_value v = pit_values_pop(rt, rt->result_stack);
-            pit_bind(rt, ent->bind, v);
-            break;
-        case EVAL_PROGRAM_ENTRY_UNBIND:
-            pit_unbind(rt, ent->unbind);
             break;
         default:
             pit_error(rt, "unknown program entry");

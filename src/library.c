@@ -27,7 +27,7 @@ static pit_value impl_sf_progn(pit_runtime *rt, pit_value args) {
     }
     pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
         .sort = EVAL_PROGRAM_ENTRY_LITERAL,
-        .bind = final,
+        .literal = final,
     });
     return PIT_NIL;
 }
@@ -37,7 +37,7 @@ static pit_value impl_sf_lambda(pit_runtime *rt, pit_value args) {
     pit_value body = pit_cdr(rt, args);
     pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
         .sort = EVAL_PROGRAM_ENTRY_LITERAL,
-        .bind = pit_lambda(rt, as, body),
+        .literal = pit_lambda(rt, as, body),
     });
     return PIT_NIL;
 }

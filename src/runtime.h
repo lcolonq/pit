@@ -46,12 +46,14 @@ typedef struct { // "heavy" values, the targets of refs
         PIT_VALUE_HEAVY_SORT_CONS=0,
         PIT_VALUE_HEAVY_SORT_ARRAY,
         PIT_VALUE_HEAVY_SORT_BYTES,
+        PIT_VALUE_HEAVY_SORT_FUNC,
         PIT_VALUE_HEAVY_SORT_NATIVEFUNC,
     } hsort;
     union {
         struct { pit_value car, cdr; } cons;
         struct { pit_value *data; i64 len; } array;
         struct { u8 *data; i64 len; } bytes;
+        struct { pit_value env; pit_value args; pit_value body; } func;
         pit_nativefunc nativefunc;
     };
 } pit_value_heavy;
@@ -73,7 +75,7 @@ typedef struct {
     } sort;
     union {
         pit_value literal;
-        struct { i64 arity; pit_value func; } apply;
+        i64 apply; // arity of application
         pit_value bind; // symbol to bind
         pit_value unbind; // symbol to unbind
     };
@@ -161,12 +163,18 @@ pit_value pit_cons(pit_runtime *rt, pit_value car, pit_value cdr);
 pit_value pit_list(pit_runtime *rt, i64 num, ...);
 pit_value pit_car(pit_runtime *rt, pit_value v);
 pit_value pit_cdr(pit_runtime *rt, pit_value v);
+pit_value pit_append(pit_runtime *rt, pit_value xs, pit_value ys);
+pit_value pit_reverse(pit_runtime *rt, pit_value xs);
+pit_value pit_contains_eq(pit_runtime *rt, pit_value needle, pit_value haystack);
 
 // working with functions
+pit_value pit_free_vars(pit_runtime *rt, pit_value args, pit_value body);
+pit_value pit_lambda(pit_runtime *rt, pit_value args, pit_value body);
 pit_value pit_nativefunc_new(pit_runtime *rt, pit_nativefunc f);
 pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args);
 
 // evaluation!
+pit_value pit_expand_macros(pit_runtime *rt, pit_value top);
 pit_value pit_eval(pit_runtime *rt, pit_value e);
 
 #endif

@@ -270,6 +270,9 @@ bool pit_is_array(pit_runtime *rt, pit_value a) {
 bool pit_is_bytes(pit_runtime *rt, pit_value a) {
     return pit_is_value_heavy_sort(rt, a, PIT_VALUE_HEAVY_SORT_BYTES);
 }
+bool pit_is_func(pit_runtime *rt, pit_value a) {
+    return pit_is_value_heavy_sort(rt, a, PIT_VALUE_HEAVY_SORT_FUNC);
+}
 bool pit_is_nativefunc(pit_runtime *rt, pit_value a) {
     return pit_is_value_heavy_sort(rt, a, PIT_VALUE_HEAVY_SORT_NATIVEFUNC);
 }
@@ -304,6 +307,11 @@ bool pit_equal(pit_runtime *rt, pit_value a, pit_value b) {
                 if (ha->bytes.data[i] != hb->bytes.data[i]) return false;
             }
             return true;
+        case PIT_VALUE_HEAVY_SORT_FUNC:
+            return
+                pit_equal(rt, ha->func.env, hb->func.env)
+                && pit_equal(rt, ha->func.args, hb->func.args)
+                && pit_equal(rt, ha->func.body, hb->func.body);
         case PIT_VALUE_HEAVY_SORT_NATIVEFUNC:
             return ha->nativefunc == hb->nativefunc;
         }
@@ -480,6 +488,105 @@ pit_value pit_cdr(pit_runtime *rt, pit_value v) {
     if (h->hsort != PIT_VALUE_HEAVY_SORT_CONS) return PIT_NIL;
     return h->cons.cdr;
 }
+void pit_setcar(pit_runtime *rt, pit_value v, pit_value x) {
+    if (pit_value_sort(v) != PIT_VALUE_SORT_REF) { pit_error(rt, "not a ref"); return; }
+    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, v));
+    if (!h) { pit_error(rt, "bad ref"); return; }
+    if (h->hsort != PIT_VALUE_HEAVY_SORT_CONS) { pit_error(rt, "not a cons"); return; }
+    h->cons.car = x;
+}
+void pit_setcdr(pit_runtime *rt, pit_value v, pit_value x) {
+    if (pit_value_sort(v) != PIT_VALUE_SORT_REF) { pit_error(rt, "not a ref"); return; }
+    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, v));
+    if (!h) { pit_error(rt, "bad ref"); return; }
+    if (h->hsort != PIT_VALUE_HEAVY_SORT_CONS) { pit_error(rt, "not a cons"); return; }
+    h->cons.cdr = x;
+}
+pit_value pit_append(pit_runtime *rt, pit_value xs, pit_value ys) {
+    pit_value ret = ys;
+    xs = pit_reverse(rt, xs);
+    while (xs != PIT_NIL) {
+        ret = pit_cons(rt, pit_car(rt, xs), ret);
+        xs = pit_cdr(rt, xs);
+    }
+    return ret;
+}
+pit_value pit_reverse(pit_runtime *rt, pit_value xs) {
+    pit_value ret = PIT_NIL;
+    while (xs != PIT_NIL) {
+        ret = pit_cons(rt, pit_car(rt, xs), ret);
+        xs = pit_cdr(rt, xs);
+    }
+    return ret;
+}
+pit_value pit_contains_eq(pit_runtime *rt, pit_value needle, pit_value haystack) {
+    while (haystack != PIT_NIL) {
+        if (pit_eq(needle, pit_car(rt, haystack))) return pit_intern_cstr(rt, "t");
+        haystack = pit_cdr(rt, haystack);
+    }
+    return PIT_NIL;
+}
+
+static pit_value extract_let_binds(pit_runtime *rt, pit_value tail, pit_value binds) {
+    pit_value ret = tail;
+    while (binds != PIT_NIL) {
+        ret = pit_cons(rt, pit_car(rt, pit_car(rt, binds)), ret);
+        binds = pit_cdr(rt, binds);
+    }
+    return ret;
+}
+pit_value pit_free_vars(pit_runtime *rt, pit_value args, pit_value body) {
+    i64 expr_stack_reset = rt->expr_stack->top;
+    pit_value bound = args;
+    pit_value ret = PIT_NIL;
+    pit_values_push(rt, rt->expr_stack, body);
+    while (rt->expr_stack->top > 0) {
+        pit_value cur = pit_values_pop(rt, rt->expr_stack);
+        if (pit_is_cons(rt, cur)) {
+            pit_value fsym = pit_car(rt, cur);
+            bool is_symbol = pit_is_symbol(rt, fsym);
+            pit_value args = pit_cdr(rt, cur);
+            if (is_symbol && pit_symbol_name_match_cstr(rt, fsym, "lambda")) {
+                bound = pit_append(rt, pit_car(rt, args), bound);
+            } else if (is_symbol && pit_symbol_name_match_cstr(rt, fsym, "quote")) {
+            } else {
+                while (args != PIT_NIL) {
+                    pit_values_push(rt, rt->expr_stack, pit_car(rt, args));
+                    args = pit_cdr(rt, args);
+                }
+                if (!is_symbol) {
+                    pit_values_push(rt, rt->expr_stack, fsym);
+                }
+            }
+        } else if (pit_is_symbol(rt, cur)) {
+            if (pit_contains_eq(rt, cur, bound) == PIT_NIL) {
+                ret = pit_cons(rt, cur, ret);
+            }
+        }
+    }
+    rt->expr_stack->top = expr_stack_reset;
+    return ret;
+}
+
+pit_value pit_lambda(pit_runtime *rt, pit_value args, pit_value body) {
+    pit_value ret = pit_heavy_new(rt);
+    pit_value_heavy *h = pit_deref(rt, ret);
+    if (!h) { pit_error(rt, "failed to create new heavy value for lambda"); return PIT_NIL; }
+    pit_value expanded = pit_expand_macros(rt, pit_cons(rt, pit_intern_cstr(rt, "progn"), body));
+    pit_value freevars = pit_free_vars(rt, args, expanded);
+    pit_value env = PIT_NIL;
+    while (freevars != PIT_NIL) {
+        pit_value sym = pit_car(rt, freevars);
+        pit_value v = pit_get(rt, sym);
+        env = pit_cons(rt, pit_cons(rt, sym, v), env);
+        freevars = pit_cdr(rt, freevars);
+    }
+    h->hsort = PIT_VALUE_HEAVY_SORT_FUNC;
+    h->func.args = args;
+    h->func.env = env;
+    h->func.body = expanded;
+    return ret;
+}
 
 pit_value pit_nativefunc_new(pit_runtime *rt, pit_nativefunc f) {
     pit_value ret = pit_heavy_new(rt);
@@ -495,11 +602,46 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
     case PIT_VALUE_SORT_REF:
         pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, f));
         if (!h) { pit_error(rt, "bad ref"); return PIT_NIL; }
-        if (h->hsort != PIT_VALUE_HEAVY_SORT_NATIVEFUNC) {
+        if (h->hsort == PIT_VALUE_HEAVY_SORT_FUNC) {
+            pit_value bound = PIT_NIL;
+            pit_value env = h->func.env;
+            while (env != PIT_NIL) {
+                pit_value b = pit_car(rt, env);
+                pit_value nm = pit_car(rt, b);
+                pit_bind(rt, nm, pit_cdr(rt, b));
+                bound = pit_cons(rt, nm, bound);
+                env = pit_cdr(rt, env);
+            }
+            pit_value anames = h->func.args;
+            while (anames != PIT_NIL) {
+                pit_value nm = pit_car(rt, anames);
+                pit_bind(rt, nm, pit_car(rt, args));
+                bound = pit_cons(rt, nm, bound);
+                args = pit_cdr(rt, args);
+                anames = pit_cdr(rt, anames);
+            }
+            // update the closure's environment with new values
+            env = h->func.env;
+            while (env != PIT_NIL) {
+                pit_value b = pit_car(rt, env);
+                pit_value nm = pit_car(rt, b);
+                pit_value v = pit_get(rt, nm);
+                printf("updating closure\n");
+                pit_setcdr(rt, b, v);
+                env = pit_cdr(rt, env);
+            }
+            pit_value ret = pit_eval(rt, h->func.body);
+            while (bound != PIT_NIL) {
+                pit_unbind(rt, pit_car(rt, bound));
+                bound = pit_cdr(rt, bound);
+            }
+            return ret;
+        } else if (h->hsort == PIT_VALUE_HEAVY_SORT_NATIVEFUNC) {
+            return h->nativefunc(rt, args);
+        } else {
             pit_error(rt, "attempt to apply non-nativefunc ref");
             return PIT_NIL;
         }
-        return h->nativefunc(rt, args);
     default:
         pit_error(rt, "attempted to apply non-function value");
         return PIT_NIL;
@@ -536,6 +678,109 @@ void pit_runtime_eval_program_push(pit_runtime *rt, pit_runtime_eval_program *s,
     if (s->top >= s->cap) { pit_error(rt, "evaluation program overflow"); }
 }
 
+pit_value pit_expand_macros(pit_runtime *rt, pit_value top) {
+    i64 expr_stack_reset = rt->expr_stack->top;
+    i64 result_stack_reset = rt->result_stack->top;
+    i64 program_reset = rt->program->top;
+    pit_values_push(rt, rt->expr_stack, top);
+    while (rt->expr_stack->top > 0) {
+        pit_value cur = pit_values_pop(rt, rt->expr_stack);
+        if (pit_is_cons(rt, cur)) {
+            pit_value fsym = pit_car(rt, cur);
+            bool is_symbol = pit_is_symbol(rt, fsym);
+            if (is_symbol && pit_is_symbol_macro(rt, fsym)) {
+                pit_value f = pit_fget(rt, fsym);
+                pit_value args = pit_cdr(rt, cur);
+                pit_value res = pit_apply(rt, f, args);
+                pit_values_push(rt, rt->expr_stack, res);
+            } else if (is_symbol && pit_symbol_name_match_cstr(rt, fsym, "defer")) {
+                pit_value args = pit_cdr(rt, cur);
+                pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
+                    .sort = EVAL_PROGRAM_ENTRY_LITERAL,
+                    .literal = pit_car(rt, args),
+                });
+            } else if (is_symbol && pit_symbol_name_match_cstr(rt, fsym, "quote")) {
+                pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
+                    .sort = EVAL_PROGRAM_ENTRY_LITERAL,
+                    .literal = cur,
+                });
+            } else if (is_symbol && pit_symbol_name_match_cstr(rt, fsym, "lambda")) {
+                pit_value args = pit_cdr(rt, cur);
+                pit_value bindings = pit_car(rt, args);
+                pit_value body = pit_cdr(rt, args);
+                pit_values_push(rt, rt->expr_stack, pit_list(rt, 2, pit_intern_cstr(rt, "defer"), bindings));
+                i64 argcount = 0;
+                while (body != PIT_NIL) {
+                    pit_value a = pit_car(rt, body);
+                    pit_values_push(rt, rt->expr_stack, a);
+                    body = pit_cdr(rt, body);
+                    argcount += 1;
+                }
+                pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
+                    .sort = EVAL_PROGRAM_ENTRY_APPLY,
+                    .apply = argcount + 1,
+                });
+                pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
+                    .sort = EVAL_PROGRAM_ENTRY_LITERAL,
+                    .literal = fsym,
+                });
+            } else {
+                pit_value args = pit_cdr(rt, cur);
+                i64 argcount = 0;
+                while (args != PIT_NIL) {
+                    pit_value a = pit_car(rt, args);
+                    pit_values_push(rt, rt->expr_stack, a);
+                    args = pit_cdr(rt, args);
+                    argcount += 1;
+                }
+                if (!is_symbol) {
+                    pit_values_push(rt, rt->expr_stack, fsym);
+                }
+                pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
+                    .sort = EVAL_PROGRAM_ENTRY_APPLY,
+                    .apply = argcount,
+                });
+                if (is_symbol) {
+                    pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
+                        .sort = EVAL_PROGRAM_ENTRY_LITERAL,
+                        .literal = fsym,
+                    });
+                }
+            }
+        } else {
+            pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
+                .sort = EVAL_PROGRAM_ENTRY_LITERAL,
+                .literal = cur,
+            });
+        }
+    }
+    for (i64 idx = rt->program->top - 1; idx >= program_reset; --idx) {
+        pit_runtime_eval_program_entry *ent = &rt->program->data[idx];
+        switch (ent->sort) {
+        case EVAL_PROGRAM_ENTRY_LITERAL:
+            pit_values_push(rt, rt->result_stack, ent->literal);
+            break;
+        case EVAL_PROGRAM_ENTRY_APPLY:
+            pit_value f = pit_values_pop(rt, rt->result_stack);
+            pit_value args = PIT_NIL;
+            for (i64 i = 0; i < ent->apply; ++i) {
+                args = pit_cons(rt, pit_values_pop(rt, rt->result_stack), args);
+            }
+            pit_values_push(rt, rt->result_stack, pit_cons(rt, f, args));
+            break;
+        default:
+            pit_error(rt, "unknown program entry");
+            goto end;
+        }
+    }
+end:
+    pit_value ret = pit_values_pop(rt, rt->result_stack);
+    rt->expr_stack->top = expr_stack_reset;
+    rt->result_stack->top = result_stack_reset;
+    rt->program->top = program_reset;
+    return ret;
+}
+
 pit_value pit_eval(pit_runtime *rt, pit_value top) {
     i64 expr_stack_reset = rt->expr_stack->top;
     i64 result_stack_reset = rt->result_stack->top;
@@ -546,27 +791,40 @@ pit_value pit_eval(pit_runtime *rt, pit_value top) {
         pit_value cur = pit_values_pop(rt, rt->expr_stack);
         if (pit_is_cons(rt, cur)) { // compound expressions: function/macro application special forms
             pit_value fsym = pit_car(rt, cur);
-            pit_value f = pit_fget(rt, fsym);
-            pit_value args = pit_cdr(rt, cur);
-            if (pit_is_symbol_special_form(rt, fsym)) { // special forms
+            bool is_symbol = pit_is_symbol(rt, fsym);
+            if (is_symbol && pit_is_symbol_special_form(rt, fsym)) { // special forms
+                pit_value f = pit_fget(rt, fsym);
+                pit_value args = pit_cdr(rt, cur);
                 // special forms are nativefuncs that directly manipulate the stacks
                 // basically macros, but we don't need to evaluate the return value
                 pit_apply(rt, f, args);
-            } else if (pit_is_symbol_macro(rt, fsym)) { // macros
+            } else if (is_symbol && pit_is_symbol_macro(rt, fsym)) { // macros
+                pit_value f = pit_fget(rt, fsym);
+                pit_value args = pit_cdr(rt, cur);
                 pit_value res = pit_apply(rt, f, args);
                 pit_values_push(rt, rt->expr_stack, res);
             } else { // normal functions
+                pit_value args = pit_cdr(rt, cur);
                 i64 argcount = 0;
                 while (args != PIT_NIL) {
                     pit_values_push(rt, rt->expr_stack, pit_car(rt, args));
                     args = pit_cdr(rt, args);
                     argcount += 1;
                 }
+                if (!is_symbol) {
+                    pit_values_push(rt, rt->expr_stack, fsym);
+                }
                 pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
                     .sort = EVAL_PROGRAM_ENTRY_APPLY,
-                    .apply.arity = argcount,
-                    .apply.func = f,
+                    .apply = argcount,
                 });
+                if (is_symbol) {
+                    pit_value f = pit_fget(rt, fsym);
+                    pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
+                        .sort = EVAL_PROGRAM_ENTRY_LITERAL,
+                        .literal = f,
+                    });
+                }
             }
         } else if (pit_is_symbol(rt, cur)) { // unquoted symbols: variable lookup
             pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
@@ -589,11 +847,12 @@ pit_value pit_eval(pit_runtime *rt, pit_value top) {
             pit_values_push(rt, rt->result_stack, ent->literal);
             break;
         case EVAL_PROGRAM_ENTRY_APPLY:
+            pit_value f = pit_values_pop(rt, rt->result_stack);
             pit_value args = PIT_NIL;
-            for (i64 i = 0; i < ent->apply.arity; ++i) {
+            for (i64 i = 0; i < ent->apply; ++i) {
                 args = pit_cons(rt, pit_values_pop(rt, rt->result_stack), args);
             }
-            pit_values_push(rt, rt->result_stack, pit_apply(rt, ent->apply.func, args));
+            pit_values_push(rt, rt->result_stack, pit_apply(rt, f, args));
             break;
         case EVAL_PROGRAM_ENTRY_BIND:
             pit_value v = pit_values_pop(rt, rt->result_stack);

@@ -32,32 +32,59 @@ static pit_value impl_sf_progn(pit_runtime *rt, pit_value args) {
     return PIT_NIL;
 }
 
-static pit_value impl_sf_let(pit_runtime *rt, pit_value args) {
+static pit_value impl_sf_lambda(pit_runtime *rt, pit_value args) {
+    pit_value as = pit_car(rt, args);
+    pit_value body = pit_cdr(rt, args);
+    pit_runtime_eval_program_push(rt, rt->program, (pit_runtime_eval_program_entry) {
+        .sort = EVAL_PROGRAM_ENTRY_LITERAL,
+        .bind = pit_lambda(rt, as, body),
+    });
+    return PIT_NIL;
+}
+
+static pit_value impl_m_let(pit_runtime *rt, pit_value args) {
+    pit_value lparams = PIT_NIL;
+    pit_value largs = PIT_NIL;
     pit_value binds = pit_car(rt, args);
-    pit_value unbinds = PIT_NIL;
+    pit_value bodyforms = pit_cdr(rt, args);
     while (binds != PIT_NIL) {
         pit_value bind = pit_car(rt, binds);
         pit_value sym = pit_car(rt, bind);
         pit_value expr = pit_car(rt, pit_cdr(rt, bind));
-        pit_value v = pit_eval(rt, expr);
-        pit_bind(rt, sym, v);
+        lparams = pit_cons(rt, sym, lparams);
+        largs = pit_cons(rt, expr, largs);
         binds = pit_cdr(rt, binds);
-        unbinds = pit_cons(rt, bind, unbinds);
     }
-    impl_sf_progn(rt, pit_cdr(rt, args));
-    while (unbinds != PIT_NIL) {
-        pit_value unbind = pit_car(rt, unbinds);
-        pit_value sym = pit_car(rt, unbind);
-        pit_unbind(rt, sym);
-        unbinds = pit_cdr(rt, unbinds);
+    pit_value lambda = pit_cons(rt, pit_intern_cstr(rt, "lambda"), pit_cons(rt, lparams, bodyforms));
+    pit_value application = pit_cons(rt, lambda, largs);
+    return application;
+}
+
+static pit_value impl_m_and(pit_runtime *rt, pit_value args) {
+    args = pit_reverse(rt, args);
+    pit_value ret = PIT_NIL;
+    if (args != PIT_NIL) {
+        ret = pit_car(rt, args);
+        args = pit_cdr(rt, args);
     }
-    return PIT_NIL;
+    while (args != PIT_NIL) {
+        ret = pit_list(rt, 3, pit_intern_cstr(rt, "if"), pit_car(rt, args), ret, PIT_NIL);
+        args = pit_cdr(rt, args);
+    }
+    return ret;
 }
 
 static pit_value impl_set(pit_runtime *rt, pit_value args) {
     pit_value sym = pit_car(rt, args);
     pit_value v = pit_car(rt, pit_cdr(rt, args));
     pit_set(rt, sym, v);
+    return v;
+}
+
+static pit_value impl_fset(pit_runtime *rt, pit_value args) {
+    pit_value sym = pit_car(rt, args);
+    pit_value v = pit_car(rt, pit_cdr(rt, args));
+    pit_fset(rt, sym, v);
     return v;
 }
 
@@ -83,10 +110,14 @@ void pit_install_library_essential(pit_runtime *rt) {
     pit_sfset(rt, pit_intern_cstr(rt, "quote"), pit_nativefunc_new(rt, impl_sf_quote));
     pit_sfset(rt, pit_intern_cstr(rt, "if"), pit_nativefunc_new(rt, impl_sf_if));
     pit_sfset(rt, pit_intern_cstr(rt, "progn"), pit_nativefunc_new(rt, impl_sf_progn));
-    pit_sfset(rt, pit_intern_cstr(rt, "let"), pit_nativefunc_new(rt, impl_sf_let));
+    pit_sfset(rt, pit_intern_cstr(rt, "lambda"), pit_nativefunc_new(rt, impl_sf_lambda));
+
+    pit_mset(rt, pit_intern_cstr(rt, "let"), pit_nativefunc_new(rt, impl_m_let));
+    pit_mset(rt, pit_intern_cstr(rt, "and"), pit_nativefunc_new(rt, impl_m_and));
 
     pit_fset(rt, pit_intern_cstr(rt, "print"), pit_nativefunc_new(rt, impl_print));
     pit_fset(rt, pit_intern_cstr(rt, "set"), pit_nativefunc_new(rt, impl_set));
+    pit_fset(rt, pit_intern_cstr(rt, "fset"), pit_nativefunc_new(rt, impl_fset));
     pit_fset(rt, pit_intern_cstr(rt, "+"), pit_nativefunc_new(rt, impl_add));
     pit_fset(rt, pit_intern_cstr(rt, "-"), pit_nativefunc_new(rt, impl_sub));
 }

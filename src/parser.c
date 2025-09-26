@@ -46,7 +46,7 @@ pit_parser *pit_parser_from_lexer(pit_lexer *lex) {
 }
 
 // parse a single expression
-pit_value pit_parse(pit_runtime *rt, pit_parser *st) {
+pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
     char buf[256] = {0};
     pit_lex_token t = advance(st);
     switch (t) {
@@ -54,7 +54,11 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st) {
         pit_error(rt, "encountered an error token while parsing");
         return PIT_NIL;
     case PIT_LEX_TOKEN_EOF:
-        pit_error(rt, "end-of-file while parsing");
+        if (eof != NULL) {
+            *eof = true;
+        } else {
+            pit_error(rt, "end-of-file while parsing");
+        }
         return PIT_NIL;
     case PIT_LEX_TOKEN_LPAREN: {
         // to construct a cons-list, we need the arguments "backwards"
@@ -64,7 +68,7 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st) {
         i64 scratch_reset = rt->scratch->next;
         while (!match(st, PIT_LEX_TOKEN_RPAREN)) {
             pit_value *cell = pit_arena_alloc_bulk(rt->scratch, sizeof(pit_value));
-            *cell = pit_parse(rt, st);
+            *cell = pit_parse(rt, st, eof);
             if (rt->error != PIT_NIL) return PIT_NIL; // if we hit an error, stop!
         }
         pit_value ret = PIT_NIL;
@@ -76,7 +80,7 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st) {
         return ret;
     }
     case PIT_LEX_TOKEN_QUOTE:
-        return pit_list(rt, 2, pit_intern_cstr(rt, "quote"), pit_parse(rt, st));
+        return pit_list(rt, 2, pit_intern_cstr(rt, "quote"), pit_parse(rt, st, eof));
     case PIT_LEX_TOKEN_INTEGER_LITERAL:
         get_token_string(st, buf, sizeof(buf));
         return pit_integer_new(rt, atoi(buf));

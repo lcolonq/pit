@@ -9,8 +9,10 @@
       pkgs = nixpkgs.legacyPackages.${system};
     in {
       devShells.x86_64-linux.default = pkgs.mkShell {
+        hardeningDisable = [ "all" ];
         buildInputs = [
           pkgs.musl
+          pkgs.valgrind
         ];
       };
     };

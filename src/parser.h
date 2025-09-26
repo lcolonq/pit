@@ -15,6 +15,6 @@ typedef struct {
 } pit_parser;
 
 pit_parser *pit_parser_from_lexer(pit_lexer *lex);
-pit_value pit_parse(pit_runtime *rt, pit_parser *st);
+pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof);
 
 #endif

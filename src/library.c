@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include "runtime.h"
 
 static pit_value impl_sf_quote(pit_runtime *rt, pit_value args) {
@@ -40,6 +42,26 @@ static pit_value impl_sf_lambda(pit_runtime *rt, pit_value args) {
         .literal = pit_lambda(rt, as, body),
     });
     return PIT_NIL;
+}
+
+static pit_value impl_m_defun(pit_runtime *rt, pit_value args) {
+    pit_value nm = pit_car(rt, args);
+    pit_value as = pit_car(rt, pit_cdr(rt, args));
+    pit_value body = pit_cdr(rt, pit_cdr(rt, args));
+    return pit_list(rt, 3,
+        pit_intern_cstr(rt, "fset"),
+        pit_list(rt, 2, pit_intern_cstr(rt, "quote"), nm),
+        pit_cons(rt, pit_intern_cstr(rt, "lambda"), pit_cons(rt, as, body))
+    );
+}
+
+static pit_value impl_m_defmacro(pit_runtime *rt, pit_value args) {
+    pit_value nm = pit_car(rt, args);
+    return pit_list(rt, 3,
+        pit_intern_cstr(rt, "progn"),
+        pit_cons(rt, pit_intern_cstr(rt, "defun"), args),
+        pit_list(rt, 2, pit_intern_cstr(rt, "set-symbol-macro"), nm)
+    );
 }
 
 static pit_value impl_m_let(pit_runtime *rt, pit_value args) {
@@ -88,9 +110,23 @@ static pit_value impl_fset(pit_runtime *rt, pit_value args) {
     return v;
 }
 
+static pit_value impl_symbol_is_macro(pit_runtime *rt, pit_value args) {
+    pit_value sym = pit_car(rt, args);
+    pit_symbol_is_macro(rt, sym);
+    return PIT_NIL;
+}
+
+static pit_value impl_eval(pit_runtime *rt, pit_value args) {
+    pit_value x = pit_car(rt, args);
+    return pit_eval(rt, x);
+}
+
 static pit_value impl_print(pit_runtime *rt, pit_value args) {
     pit_value x = pit_car(rt, args);
-    pit_trace(rt, x);
+    char buf[1024] = {0};
+    pit_dump(rt, buf, sizeof(buf), x);
+    buf[1023] = 0;
+    puts(buf);
     return x;
 }
 
@@ -112,12 +148,16 @@ void pit_install_library_essential(pit_runtime *rt) {
     pit_sfset(rt, pit_intern_cstr(rt, "progn"), pit_nativefunc_new(rt, impl_sf_progn));
     pit_sfset(rt, pit_intern_cstr(rt, "lambda"), pit_nativefunc_new(rt, impl_sf_lambda));
 
+    pit_mset(rt, pit_intern_cstr(rt, "defun"), pit_nativefunc_new(rt, impl_m_defun));
+    pit_mset(rt, pit_intern_cstr(rt, "defmacro"), pit_nativefunc_new(rt, impl_m_defmacro));
     pit_mset(rt, pit_intern_cstr(rt, "let"), pit_nativefunc_new(rt, impl_m_let));
     pit_mset(rt, pit_intern_cstr(rt, "and"), pit_nativefunc_new(rt, impl_m_and));
 
-    pit_fset(rt, pit_intern_cstr(rt, "print"), pit_nativefunc_new(rt, impl_print));
     pit_fset(rt, pit_intern_cstr(rt, "set"), pit_nativefunc_new(rt, impl_set));
     pit_fset(rt, pit_intern_cstr(rt, "fset"), pit_nativefunc_new(rt, impl_fset));
+    pit_fset(rt, pit_intern_cstr(rt, "symbol-is-macro"), pit_nativefunc_new(rt, impl_symbol_is_macro));
+    pit_fset(rt, pit_intern_cstr(rt, "eval"), pit_nativefunc_new(rt, impl_eval));
+    pit_fset(rt, pit_intern_cstr(rt, "print"), pit_nativefunc_new(rt, impl_print));
     pit_fset(rt, pit_intern_cstr(rt, "+"), pit_nativefunc_new(rt, impl_add));
     pit_fset(rt, pit_intern_cstr(rt, "-"), pit_nativefunc_new(rt, impl_sub));
 }

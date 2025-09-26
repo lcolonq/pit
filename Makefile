@@ -5,7 +5,7 @@ EXE := pit
 CC := musl-gcc
 CHK_SOURCES ?= $(SRCS)
 CPPFLAGS ?= -MMD -MP
-CFLAGS ?= -Ideps/ -Isrc/ -Wall -Wextra -Wpedantic -ftrapv --std=c23 -O0 -g
+CFLAGS ?= -Ideps/ -Isrc/ -Wall -Wextra -Wpedantic -ftrapv --std=c23 -g
 LDFLAGS ?= -g -static
 
 .PHONY: all clean check-syntax

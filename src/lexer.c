@@ -49,12 +49,16 @@ static bool match(pit_lexer *st, int (*f)(int)) {
 pit_lexer *pit_lex_file(char *path) {
     pit_lexer *ret = malloc(sizeof(*ret));
     FILE *f = fopen(path, "r");
-    if (!f) pit_panic("failed to open file for lexing: %s", path);
+    if (f == NULL) {
+        pit_panic("failed to open file for lexing: %s", path);
+        return NULL;
+    }
     fseek(f, 0, SEEK_END);
     ret->len = ftell(f);
     fseek(f, 0, SEEK_SET);
     ret->input = calloc(ret->len, sizeof(char));
     fread(ret->input, sizeof(char), ret->len, f);
+    fclose(f);
     ret->start = 0;
     ret->end = 0;
     return ret;
@@ -80,7 +84,13 @@ restart:
         return PIT_LEX_TOKEN_STRING_LITERAL;
     default:
         if (isspace(c)) goto restart;
-        if (isdigit(c)) { while (match(st, isdigit)); return PIT_LEX_TOKEN_INTEGER_LITERAL; }
-        else { while (match(st, is_symchar)); return PIT_LEX_TOKEN_SYMBOL; }
+        if (isdigit(c)) {
+            while (match(st, isdigit)) {}
+            return PIT_LEX_TOKEN_INTEGER_LITERAL;
+        }
+        else {
+            while (match(st, is_symchar)) {}
+            return PIT_LEX_TOKEN_SYMBOL;
+        }
     }
 }

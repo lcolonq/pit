@@ -12,6 +12,7 @@ typedef struct {
     u8 data[];
 } pit_arena;
 pit_arena *pit_arena_new(i64 capacity, i64 elem_size);
+i32 pit_arena_next_idx(pit_arena *a);
 i32 pit_arena_alloc_idx(pit_arena *a);
 i32 pit_arena_alloc_bulk_idx(pit_arena *a, i64 num);
 void *pit_arena_idx(pit_arena *a, i32 idx);
@@ -86,17 +87,25 @@ pit_runtime_eval_program *pit_runtime_eval_program_new(i64 capacity);
 void pit_runtime_eval_program_push(struct pit_runtime *rt, pit_runtime_eval_program *s, pit_runtime_eval_program_entry x);
 
 typedef struct pit_runtime {
-    pit_arena *values; // all heavy values - effectively an array of pit_value_heavy
-    pit_arena *bytes; // all bytestrings (including symbol names)
-    pit_arena *symtab; i64 symtab_len; // all symbols - effectively an array of pit_symtab_entry
+    // interpreter state
+    pit_arena *values; // all heavy values - effectively an array of pit_value_heavy - MUTABLE!
+    pit_arena *bytes; // all bytestrings (including symbol names) - immutable
+    pit_arena *symtab; i64 symtab_len; // all symbols - effectively an array of pit_symtab_entry - MUTABLE! 
+    // temporary/"scratch" memory
     pit_arena *scratch; // temporary arena used during parsing and evaluation
     pit_values *saved_bindings; // stack used to save old values of bindings to be restored ("shallow binding")
     pit_values *expr_stack; // stack of subexpressions to evaluate during evaluation
     pit_values *result_stack; // stack of intermediate values during evaluation
     pit_runtime_eval_program *program; // intermediate stack-based program constructed during evaluation
+    // bookkeeping
+    // "frozen" values offsets: values before these offsets are immutable, and we can reset here later
+    i64 frozen_values, frozen_bytes, frozen_symtab;
     pit_value error; // error value - if this is non-nil, an error has occured! only tracks the first error
 } pit_runtime;
 pit_runtime *pit_runtime_new();
+
+void pit_runtime_freeze(pit_runtime *rt); // freeze the runtime at the current point - everything currently defined becomes immutable
+void pit_runtime_reset(pit_runtime *rt); // restore the runtime to the frozen point, resetting everything that has happened since
 
 i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v);
 #define pit_trace(rt, v) pit_trace_(rt, "Trace [" __FILE__ ":" PIT_STR(__LINE__) "] %s\n", v)

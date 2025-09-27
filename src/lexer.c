@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <ctype.h>
 
 #include "utils.h"
@@ -35,38 +36,65 @@ static char peek(pit_lexer *st) {
 }
 
 static char advance(pit_lexer *st) {
-    if (is_more_input(st)) return st->input[st->end++];
+    if (is_more_input(st)) {
+        char ret = st->input[st->end++];
+        if (ret == '\n') {
+            st->line += 1;
+            st->column = 0;
+        } else {
+            st->column += 1;
+        }
+        return ret;
+    }
     else return 0;
 }
 
 static bool match(pit_lexer *st, int (*f)(int)) {
     if (f(peek(st))) {
-        st->end += 1;
+        advance(st);
         return true;
     } else return false;
 }
 
-pit_lexer *pit_lex_file(char *path) {
-    pit_lexer *ret = malloc(sizeof(*ret));
+void pit_lex_cstr(pit_lexer *ret, char *buf) {
+    ret->input = buf;
+    ret->len = strlen(buf);
+    ret->start = 0;
+    ret->end = 0;
+    ret->line = ret->start_line = 1;
+    ret->column = ret->start_column = 0;
+    ret->error = NULL;
+}
+
+void pit_lex_bytes(pit_lexer *ret, char *buf, i64 len) {
+    ret->len = len;
+    ret->input = buf;
+    ret->start = 0;
+    ret->end = 0;
+    ret->line = ret->start_line = 1;
+    ret->column = ret->start_column = 0;
+    ret->error = NULL;
+}
+void pit_lex_file(pit_lexer *ret, char *path) {
     FILE *f = fopen(path, "r");
     if (f == NULL) {
         pit_panic("failed to open file for lexing: %s", path);
-        return NULL;
+        return;
     }
     fseek(f, 0, SEEK_END);
-    ret->len = ftell(f);
+    i64 len = ftell(f);
     fseek(f, 0, SEEK_SET);
-    ret->input = calloc(ret->len, sizeof(char));
+    char *buf = calloc(ret->len, sizeof(char));
     fread(ret->input, sizeof(char), ret->len, f);
     fclose(f);
-    ret->start = 0;
-    ret->end = 0;
-    return ret;
+    pit_lex_bytes(ret, buf, len);
 }
 
 pit_lex_token pit_lex_next(pit_lexer *st) {
 restart:
     st->start = st->end;
+    st->start_line = st->line;
+    st->start_column = st->column;
     char c = advance(st);
     switch (c) {
     case 0: return PIT_LEX_TOKEN_EOF;
@@ -78,7 +106,10 @@ restart:
     case '"':
         while (peek(st) != '"') {
             if (peek(st) == '\\') advance(st); // skip escaped characters
-            if (!advance(st)) pit_panic("unterminated string starting at: %d", st->start);
+            if (!advance(st)) {
+                st->error = "unterminated string";
+                return PIT_LEX_TOKEN_ERROR;
+            }
         }
         advance(st);
         return PIT_LEX_TOKEN_STRING_LITERAL;

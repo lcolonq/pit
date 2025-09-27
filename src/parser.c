@@ -18,6 +18,8 @@ static pit_lex_token advance(pit_parser *st) {
     st->next.token = pit_lex_next(st->lexer);
     st->next.start = st->lexer->start;
     st->next.end = st->lexer->end;
+    st->next.line = st->lexer->start_line;
+    st->next.column = st->lexer->start_column;
     return st->cur.token;
 }
 
@@ -35,23 +37,25 @@ static void get_token_string(pit_parser *st, char *buf, i64 len) {
     buf[tlen] = 0;
 }
 
-pit_parser *pit_parser_from_lexer(pit_lexer *lex) {
-    pit_parser *ret = malloc(sizeof(*ret));
+void pit_parser_from_lexer(pit_parser *ret, pit_lexer *lex) {
     ret->lexer = lex;
     ret->cur.token = ret->next.token = PIT_LEX_TOKEN_ERROR;
     ret->cur.start = ret->next.start = 0;
     ret->cur.end = ret->next.end = 0;
+    ret->cur.line = ret->next.line = -1;
+    ret->cur.column = ret->next.column = -1;
     advance(ret);
-    return ret;
 }
 
 // parse a single expression
 pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
     char buf[256] = {0};
     pit_lex_token t = advance(st);
+    rt->source_line = st->cur.line;
+    rt->source_column = st->cur.column;
     switch (t) {
     case PIT_LEX_TOKEN_ERROR:
-        pit_error(rt, "encountered an error token while parsing");
+        pit_error(rt, "encountered an error while lexing: %s", st->lexer->error);
         return PIT_NIL;
     case PIT_LEX_TOKEN_EOF:
         if (eof != NULL) {

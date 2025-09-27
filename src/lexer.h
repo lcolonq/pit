@@ -18,10 +18,15 @@ typedef enum {
 
 typedef struct {
     char *input;
-    i64 start, end, len;
+    i64 len; // length of input
+    i64 start, end; // bounds of the current token
+    i64 line, column; // for error reporting only; current line and column
+    i64 start_line, start_column; // for error reporting only; line and column of token start
+    char *error;
 } pit_lexer;
 
-pit_lexer *pit_lex_file(char *path);
+void pit_lex_bytes(pit_lexer *ret, char *buf, i64 len);
+void pit_lex_file(pit_lexer *ret, char *path);
 pit_lex_token pit_lex_next(pit_lexer *st);
 const char *pit_lex_token_name(pit_lex_token t);
 

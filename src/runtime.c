@@ -6,6 +6,8 @@
 #include <math.h>
 
 #include "utils.h"
+#include "lexer.h"
+#include "parser.h"
 #include "runtime.h"
 #include "library.h"
 
@@ -76,6 +78,8 @@ pit_runtime *pit_runtime_new() {
     ret->frozen_bytes = 0;
     ret->frozen_symtab = 0;
     ret->error = PIT_NIL;
+    ret->source_line = ret->source_column = -1;
+    ret->error_line = ret->error_column = -1;
     pit_value nil = pit_intern_cstr(ret, "nil"); // nil must be the 0th symbol for PIT_NIL to work
     pit_set(ret, nil, PIT_NIL);
     pit_value truth = pit_intern_cstr(ret, "t");
@@ -95,8 +99,17 @@ void pit_runtime_reset(pit_runtime *rt) {
     rt->bytes->next = rt->frozen_bytes;
     rt->symtab->next = rt->frozen_symtab;
 }
+bool pit_runtime_print_error(pit_runtime *rt) {
+    if (!pit_eq(rt->error, PIT_NIL)) {
+        char buf[1024] = {0};
+        pit_dump(rt, buf, sizeof(buf), rt->error, false);
+        fprintf(stderr, "error at line %ld, column %ld: %s\n", rt->error_line, rt->error_column, buf);
+        return true;
+    }
+    return false;
+}
 
-i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v) {
+i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
     pit_value_heavy *h = NULL;
     if (len <= 0) return 0;
     switch (pit_value_sort(v)) {
@@ -128,7 +141,7 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v) {
                 char *end = buf + len;
                 char *start = buf;
                 *(buf++) = '{';
-                buf += pit_dump(rt, buf, end - buf, pit_car(rt, h->cell));
+                buf += pit_dump(rt, buf, end - buf, pit_car(rt, h->cell), readable);
                 *(buf++) = '}';
                 return buf - start;
             }
@@ -139,12 +152,12 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v) {
                 do {
                     if (pit_is_cons(rt, cur)) {
                         *(buf++) = ' '; if (buf >= end) return end - buf;
-                        buf += pit_dump(rt, buf, end - buf, pit_car(rt, cur));
+                        buf += pit_dump(rt, buf, end - buf, pit_car(rt, cur), readable);
                         if (buf >= end) return end - buf;
                     } else {
                         buf += snprintf(buf, end - buf, " . ");
                         if (buf >= end) return end - buf;
-                        buf += pit_dump(rt, buf, end - buf, cur);
+                        buf += pit_dump(rt, buf, end - buf, cur, readable);
                         if (buf >= end) return end - buf;
                     }
                 } while (!pit_eq((cur = pit_cdr(rt, cur)), PIT_NIL));
@@ -153,14 +166,15 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v) {
                 return buf - start;
             }
             case PIT_VALUE_HEAVY_SORT_BYTES:
-                buf[0] = '"';
-                i64 i = 1;
-                for (i64 j = 0; i < len - 1 && j < h->bytes.len;) {
+                i64 i = 0;
+                if (readable) buf[i++] = '"';
+                i64 maxlen = len - i;
+                for (i64 j = 0; i < maxlen && j < h->bytes.len;) {
                     if (buf[i - 1] != '\\' && (h->bytes.data[j] == '\\' || h->bytes.data[j] == '"'))
                         buf[i++] = '\\';
                     else buf[i++] = h->bytes.data[j++];
                 }
-                if (i < len - 1) buf[i++] = '"';
+                if (readable && i < len - 1) buf[i++] = '"';
                 return i;
             default:
                 return snprintf(buf, len, "<ref %d>", r);
@@ -173,7 +187,7 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v) {
 
 void pit_trace_(pit_runtime *rt, const char *format, pit_value v) {
     char buf[1024] = {0};
-    pit_dump(rt, buf, sizeof(buf), v);
+    pit_dump(rt, buf, sizeof(buf), v, true);
     fprintf(stderr, format, buf);
 }
 
@@ -185,14 +199,8 @@ void pit_error(pit_runtime *rt, const char *format, ...) {
         vsnprintf(buf, sizeof(buf), format, vargs);
         va_end(vargs);
         rt->error = pit_bytes_new_cstr(rt, buf);
-    }
-}
-
-void pit_check_error_maybe_panic(pit_runtime *rt) {
-    if (!pit_eq(rt->error, PIT_NIL)) {
-        char buf[1024] = {0};
-        pit_dump(rt, buf, sizeof(buf), rt->error);
-        pit_panic("runtime error: %s", buf);
+        rt->error_line = rt->source_line;
+        rt->error_column = rt->source_column;
     }
 }
 
@@ -349,12 +357,10 @@ bool pit_equal(pit_runtime *rt, pit_value a, pit_value b) {
     }
     return false;
 }
-
 pit_value pit_bytes_new(pit_runtime *rt, u8 *buf, i64 len) {
     u8 *dest = pit_arena_alloc_bulk(rt->bytes, len);
     if (!dest) { pit_error(rt, "failed to allocate bytes"); return PIT_NIL; }
     memcpy(dest, buf, len);
-    if (!dest) return PIT_NIL;
     pit_value ret = pit_heavy_new(rt);
     pit_value_heavy *h = pit_deref(rt, ret);
     if (!h) { pit_error(rt, "failed to create new heavy value for bytes"); return PIT_NIL; }
@@ -363,11 +369,30 @@ pit_value pit_bytes_new(pit_runtime *rt, u8 *buf, i64 len) {
     h->bytes.len = len;
     return ret;
 }
-
 pit_value pit_bytes_new_cstr(pit_runtime *rt, char *s) {
     return pit_bytes_new(rt, (u8 *) s, strlen(s));
 }
-
+pit_value pit_bytes_new_file(pit_runtime *rt, char *path) {
+    FILE *f = fopen(path, "r");
+    if (f == NULL) {
+        pit_error(rt, "failed to open file: %s", path);
+        return PIT_NIL;
+    }
+    fseek(f, 0, SEEK_END);
+    i64 len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    u8 *dest = pit_arena_alloc_bulk(rt->bytes, len);
+    if (!dest) { pit_error(rt, "failed to allocate bytes"); fclose(f); return PIT_NIL; }
+    fread(dest, sizeof(char), len, f);
+    fclose(f);
+    pit_value ret = pit_heavy_new(rt);
+    pit_value_heavy *h = pit_deref(rt, ret);
+    if (!h) { pit_error(rt, "failed to create new heavy value for bytes"); return PIT_NIL; }
+    h->hsort = PIT_VALUE_HEAVY_SORT_BYTES;
+    h->bytes.data = dest;
+    h->bytes.len = len;
+    return ret;
+}
 // return true if v is a reference to bytes that are the same as those in buf
 bool pit_bytes_match(pit_runtime *rt, pit_value v, u8 *buf, i64 len) {
     if (pit_value_sort(v) != PIT_VALUE_SORT_REF) return false;
@@ -380,6 +405,42 @@ bool pit_bytes_match(pit_runtime *rt, pit_value v, u8 *buf, i64 len) {
             return false;
         }
     return true;
+}
+i64 pit_as_bytes(pit_runtime *rt, pit_value v, u8 *buf, i64 maxlen) {
+    if (pit_value_sort(v) != PIT_VALUE_SORT_REF) return -1;
+    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, v));
+    if (!h) { pit_error(rt, "bad ref"); return -1; }
+    if (h->hsort != PIT_VALUE_HEAVY_SORT_BYTES) {
+        pit_error(rt, "invalid use of value as bytes");
+        return -1;
+    }
+    i64 len = maxlen < h->bytes.len ? maxlen : h->bytes.len;
+    for (i64 i = 0; i < len; ++i) {
+        buf[i] = h->bytes.data[i];
+    }
+    return len;
+}
+bool pit_lexer_from_bytes(pit_runtime *rt, pit_lexer *ret, pit_value v) {
+    if (pit_value_sort(v) != PIT_VALUE_SORT_REF) return false;
+    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, v));
+    if (!h) { pit_error(rt, "bad ref"); return false; }
+    if (h->hsort != PIT_VALUE_HEAVY_SORT_BYTES) {
+        pit_error(rt, "invalid use of value as bytes");
+        return -1;
+    }
+    pit_lex_bytes(ret, (char *) h->bytes.data, h->bytes.len);
+    return true;
+}
+pit_value pit_read_bytes(pit_runtime *rt, pit_value v) { // read a single lisp form from a bytestring
+    pit_lexer lex;
+    if (!pit_lexer_from_bytes(rt, &lex, v)) {
+        pit_error(rt, "failed to initialize lexer");
+        return PIT_NIL;
+    }
+    pit_parser parse;
+    pit_parser_from_lexer(&parse, &lex);
+    pit_value program = pit_parse(rt, &parse, NULL);
+    return pit_eval(rt, program);
 }
 
 pit_value pit_intern(pit_runtime *rt, u8 *nm, i64 len) {

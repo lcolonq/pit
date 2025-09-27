@@ -3,6 +3,7 @@
 
 #include "types.h"
 #include "utils.h"
+#include "lexer.h"
 
 struct pit_runtime;
 
@@ -101,17 +102,19 @@ typedef struct pit_runtime {
     // "frozen" values offsets: values before these offsets are immutable, and we can reset here later
     i64 frozen_values, frozen_bytes, frozen_symtab;
     pit_value error; // error value - if this is non-nil, an error has occured! only tracks the first error
+    i64 source_line, source_column; // for error reporting only; line and column of token start
+    i64 error_line, error_column; // line and column of token start at time of error
 } pit_runtime;
 pit_runtime *pit_runtime_new();
 
 void pit_runtime_freeze(pit_runtime *rt); // freeze the runtime at the current point - everything currently defined becomes immutable
 void pit_runtime_reset(pit_runtime *rt); // restore the runtime to the frozen point, resetting everything that has happened since
+bool pit_runtime_print_error(pit_runtime *rt); // return true if an error has occured, and print to stderr
 
-i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v);
+i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable); // if readable is true, try to produce output that can be machine-read (quotes on strings, etc)
 #define pit_trace(rt, v) pit_trace_(rt, "Trace [" __FILE__ ":" PIT_STR(__LINE__) "] %s\n", v)
 void pit_trace_(pit_runtime *rt, const char *format, pit_value v);
 void pit_error(pit_runtime *rt, const char *format, ...);
-void pit_check_error_maybe_panic(pit_runtime *rt);
 
 // working with small values
 pit_value pit_value_new(pit_runtime *rt, enum pit_value_sort s, u64 data);
@@ -145,7 +148,11 @@ bool pit_equal(pit_runtime *rt, pit_value a, pit_value b);
 // working with binary data
 pit_value pit_bytes_new(pit_runtime *rt, u8 *buf, i64 len);
 pit_value pit_bytes_new_cstr(pit_runtime *rt, char *s);
+pit_value pit_bytes_new_file(pit_runtime *rt, char *path);
 bool pit_bytes_match(pit_runtime *rt, pit_value v, u8 *buf, i64 len);
+i64 pit_as_bytes(pit_runtime *rt, pit_value v, u8 *buf, i64 maxlen);
+bool pit_lexer_from_bytes(pit_runtime *rt, pit_lexer *ret, pit_value v);
+pit_value pit_read_bytes(pit_runtime *rt, pit_value v);
 
 // working with the symbol table
 pit_value pit_intern(pit_runtime *rt, u8 *nm, i64 len);

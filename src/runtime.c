@@ -567,7 +567,7 @@ pit_value pit_cell_new(pit_runtime *rt, pit_value v) {
 }
 pit_value pit_cell_get(pit_runtime *rt, pit_value cell) {
     if (pit_value_sort(cell) != PIT_VALUE_SORT_REF) {
-        pit_error(rt, "cell value is not ref");
+        pit_error(rt, "attempted to get cell value that is not ref");
         return PIT_NIL;
     }
     pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, cell));
@@ -580,7 +580,7 @@ pit_value pit_cell_get(pit_runtime *rt, pit_value cell) {
 }
 void pit_cell_set(pit_runtime *rt, pit_value cell, pit_value v) {
     if (pit_value_sort(cell) != PIT_VALUE_SORT_REF) {
-        pit_error(rt, "cell value is not ref");
+        pit_error(rt, "attempted to set cell value that is not ref");
         return;
     }
     pit_ref idx = pit_as_ref(rt, cell);
@@ -823,7 +823,7 @@ pit_value pit_expand_macros(pit_runtime *rt, pit_value top) {
     i64 result_stack_reset = rt->result_stack->top;
     i64 program_reset = rt->program->top;
     pit_values_push(rt, rt->expr_stack, top);
-    while (rt->expr_stack->top > 0) {
+    while (rt->expr_stack->top > expr_stack_reset) {
         if (rt->error != PIT_NIL) goto end;
         pit_value cur = pit_values_pop(rt, rt->expr_stack);
         if (pit_is_cons(rt, cur)) {
@@ -929,7 +929,7 @@ pit_value pit_eval(pit_runtime *rt, pit_value top) {
     i64 program_reset = rt->program->top;
     pit_values_push(rt, rt->expr_stack, top);
     // first, convert the expression tree into "polish notation" in program
-    while (rt->expr_stack->top > 0) {
+    while (rt->expr_stack->top > expr_stack_reset) {
         if (rt->error != PIT_NIL) goto end;
         pit_value cur = pit_values_pop(rt, rt->expr_stack);
         if (pit_is_cons(rt, cur)) { // compound expressions: function/macro application special forms

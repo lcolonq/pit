@@ -130,7 +130,15 @@ static pit_value impl_symbol_is_macro(pit_runtime *rt, pit_value args) {
 
 static pit_value impl_funcall(pit_runtime *rt, pit_value args) {
     pit_value fsym = pit_car(rt, args);
-    pit_value f = pit_fget(rt, fsym);
+    pit_value f;
+    if (pit_is_symbol(rt, fsym)) {
+        f = pit_fget(rt, fsym);
+    } else {
+        // if f is not a symbol, assume it is a func or nativefunc
+        // most commonly, this happens when you funcall a variable
+        // with a function in the value cell, e.g. passing a lambda to a function
+        f = fsym;
+    }
     pit_value as = pit_cdr(rt, args);
     return pit_apply(rt, f, as);
 }

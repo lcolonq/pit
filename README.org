@@ -23,6 +23,13 @@ Take a look at [[./src/library.c]] for examples of defining new functions and ma
 Not many standard Lisp functions and macros are currently defined, mostly for no particular good reason.
 When using this, I'd probably define just what I need and not much else.
 * memory
-The interpreter uses a unconventional strategy for memory management. When the interpreter is initialized, it is provided with several memory regions of fixed size. During evaluation, some of these regions are used as temporary stacks, and others are used as arenas to allocate values (most values are NaN-boxed, so only "heavy" values like cons cells and bytestrings need to be allocated). There is no garbage collection - these arenas only grow during normal execution. By calling ~pit_runtime_freeze~, an interpreter can be "frozen", recording the next-free-position pointer for each arena. Subsequently, any attempt to modify values or symbol bindings that occur before these recorded pointers causes an error. By later calling ~pit_runtime_reset~, the arena next-free-positions are reset to the recorded ones, effectively undoing all memory usage that has happened since the interpreter was frozen.
+The interpreter uses an unconventional strategy for memory management:
+- When the interpreter is initialized, it is provided with several memory regions of fixed size.
+- During evaluation, some of these regions are used as temporary stacks, and others are used as arenas to allocate values (most values are NaN-boxed, so only "heavy" values like cons cells and bytestrings need to be allocated).
+- There is no garbage collection - these arenas only grow during normal execution.
+- By calling ~pit_runtime_freeze~, an interpreter can be "frozen", recording the next-free-position pointer for each arena.
+- Subsequently, any attempt to modify values or symbol bindings that occur before these recorded pointers causes an error.
+- By later calling ~pit_runtime_reset~, the arena next-free-positions are reset to the recorded ones, effectively undoing all memory usage that has happened since the interpreter was frozen.
+
 This model matches the intended usage of the interpreter as a scripting language for games. The intended usage is that the game engine will initialize the interpreter with all routines necessary for scripting, and then freeze the runtime. Scripts can be evaluated, and then the interpreter can be reset back to its starting state. This allows many scripts to be run on the interpreter without running out of memory, prevents undesirable changes to global state, and does not require any unpredictable garbage collection pass. Memory limits can also be easily enforced - simply specify smaller arena/stack sizes when initializing the interpreter.
 Who knows how well this works in practice! It seemed interesting though, and it was simple to implement.

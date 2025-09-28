@@ -2,7 +2,7 @@ SRCS := src/main.c src/utils.c src/lexer.c src/parser.c src/runtime.c src/librar
 OBJECTS := $(SRCS:src/%.c=build/%.o)
 EXE := pit
 
-CC := musl-gcc
+CC ?= gcc
 CHK_SOURCES ?= $(SRCS)
 CPPFLAGS ?= -MMD -MP
 CFLAGS ?= -Ideps/ -Isrc/ -Wall -Wextra -Wpedantic -ftrapv --std=c23 -g

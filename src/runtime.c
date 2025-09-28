@@ -750,9 +750,10 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
         pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, f));
         if (!h) { pit_error(rt, "bad ref"); return PIT_NIL; }
         if (h->hsort == PIT_VALUE_HEAVY_SORT_FUNC) {
+            // calling a Lisp function is simple!
             pit_value bound = PIT_NIL;
             pit_value env = h->func.env;
-            while (env != PIT_NIL) {
+            while (env != PIT_NIL) { // first, bind all entries in the closure
                 pit_value b = pit_car(rt, env);
                 pit_value nm = pit_car(rt, b);
                 pit_bind(rt, nm, pit_cdr(rt, b));
@@ -760,7 +761,7 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
                 env = pit_cdr(rt, env);
             }
             pit_value anames = h->func.args;
-            while (anames != PIT_NIL) {
+            while (anames != PIT_NIL) { // bind all argument names to their values
                 pit_value aform = pit_car(rt, anames);
                 pit_value nm = pit_car(rt, aform);
                 pit_value cell = pit_cdr(rt, aform);
@@ -770,13 +771,14 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
                 args = pit_cdr(rt, args);
                 anames = pit_cdr(rt, anames);
             }
-            pit_value ret = pit_eval(rt, h->func.body);
-            while (bound != PIT_NIL) {
+            pit_value ret = pit_eval(rt, h->func.body); // evaluate the body
+            while (bound != PIT_NIL) { // unbind everything we bound earlier, in reverse
                 pit_unbind(rt, pit_car(rt, bound));
                 bound = pit_cdr(rt, bound);
             }
             return ret;
         } else if (h->hsort == PIT_VALUE_HEAVY_SORT_NATIVEFUNC) {
+            // calling native functions is even simpler
             return h->nativefunc(rt, args);
         } else {
             pit_error(rt, "attempt to apply non-nativefunc ref");

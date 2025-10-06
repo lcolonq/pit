@@ -8,14 +8,14 @@
 #include "types.h"
 
 const char *PIT_LEX_TOKEN_NAMES[PIT_LEX_TOKEN__SENTINEL] = {
-    [PIT_LEX_TOKEN_EOF] = "eof",
-    [PIT_LEX_TOKEN_LPAREN] = "lparen",
-    [PIT_LEX_TOKEN_RPAREN] = "rparen",
-    [PIT_LEX_TOKEN_DOT] = "dot",
-    [PIT_LEX_TOKEN_QUOTE] = "quote",
-    [PIT_LEX_TOKEN_INTEGER_LITERAL] = "integer_literal",
-    [PIT_LEX_TOKEN_STRING_LITERAL] = "string_literal",
-    [PIT_LEX_TOKEN_SYMBOL] = "symbol",
+    /* [PIT_LEX_TOKEN_EOF] = */ "eof",
+    /* [PIT_LEX_TOKEN_LPAREN] = */ "lparen",
+    /* [PIT_LEX_TOKEN_RPAREN] = */ "rparen",
+    /* [PIT_LEX_TOKEN_DOT] = */ "dot",
+    /* [PIT_LEX_TOKEN_QUOTE] = */ "quote",
+    /* [PIT_LEX_TOKEN_INTEGER_LITERAL] = */ "integer_literal",
+    /* [PIT_LEX_TOKEN_STRING_LITERAL] = */ "string_literal",
+    /* [PIT_LEX_TOKEN_SYMBOL] = */ "symbol",
 };
 
 const char *pit_lex_token_name(pit_lex_token t) {
@@ -58,7 +58,7 @@ static bool match(pit_lexer *st, int (*f)(int)) {
 
 void pit_lex_cstr(pit_lexer *ret, char *buf) {
     ret->input = buf;
-    ret->len = strlen(buf);
+    ret->len = (i64) strlen(buf);
     ret->start = 0;
     ret->end = 0;
     ret->line = ret->start_line = 1;
@@ -77,25 +77,31 @@ void pit_lex_bytes(pit_lexer *ret, char *buf, i64 len) {
 }
 void pit_lex_file(pit_lexer *ret, char *path) {
     FILE *f = fopen(path, "r");
+    i64 len = 0;
+    char *buf = NULL;
     if (f == NULL) {
         pit_panic("failed to open file for lexing: %s", path);
         return;
     }
     fseek(f, 0, SEEK_END);
-    i64 len = ftell(f);
+    len = ftell(f);
     fseek(f, 0, SEEK_SET);
-    char *buf = calloc(ret->len, sizeof(char));
-    fread(ret->input, sizeof(char), ret->len, f);
+    buf = calloc((size_t) ret->len, sizeof(char));
+    if ((size_t) ret->len != fread(ret->input, sizeof(char), (size_t) ret->len, f)) {
+        pit_panic("failed to read file for lexing: %s", path);
+        return;
+    }
     fclose(f);
     pit_lex_bytes(ret, buf, len);
 }
 
 pit_lex_token pit_lex_next(pit_lexer *st) {
+    char c = 0;
 restart:
     st->start = st->end;
     st->start_line = st->line;
     st->start_column = st->column;
-    char c = advance(st);
+    c = advance(st);
     switch (c) {
     case 0: return PIT_LEX_TOKEN_EOF;
     case ';': while (is_more_input(st) && advance(st) != '\n'); goto restart;
@@ -105,7 +111,7 @@ restart:
     case '\'': return PIT_LEX_TOKEN_QUOTE;
     case '"':
         while (peek(st) != '"') {
-            if (peek(st) == '\\') advance(st); // skip escaped characters
+            if (peek(st) == '\\') advance(st); /* skip escaped characters */
             if (!advance(st)) {
                 st->error = "unterminated string";
                 return PIT_LEX_TOKEN_ERROR;

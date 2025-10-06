@@ -1,4 +1,6 @@
 /build/
 /.direnv/
 /pit
+/*.a
+/result
 TAGS

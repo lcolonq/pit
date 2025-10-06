@@ -4,7 +4,7 @@
 
 #include "utils.h"
 
-void pit_panic_(const char *format, ...) {
+void pit_panic(const char *format, ...) {
     va_list vargs;
     va_start(vargs, format);
     vfprintf(stderr, format, vargs);
@@ -12,7 +12,7 @@ void pit_panic_(const char *format, ...) {
     exit(1);
 }
 
-void pit_debug_(const char *format, ...) {
+void pit_debug(const char *format, ...) {
     va_list vargs;
     va_start(vargs, format);
     vfprintf(stderr, format, vargs);

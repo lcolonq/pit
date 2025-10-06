@@ -33,7 +33,7 @@ static bool match(pit_parser *st, pit_lex_token t) {
 static void get_token_string(pit_parser *st, char *buf, i64 len) {
     i64 diff = st->cur.end - st->cur.start;
     i64 tlen = diff >= len ? len - 1 : diff;
-    memcpy(buf, st->lexer->input + st->cur.start, tlen);
+    memcpy(buf, st->lexer->input + st->cur.start, (size_t) tlen);
     buf[tlen] = 0;
 }
 
@@ -47,10 +47,12 @@ void pit_parser_from_lexer(pit_parser *ret, pit_lexer *lex) {
     advance(ret);
 }
 
-// parse a single expression
+/* parse a single expression */
 pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
     char buf[256] = {0};
-    pit_lex_token t = advance(st);
+    pit_lex_token t;
+    if (rt == NULL || st == NULL) return PIT_NIL;
+    t = advance(st);
     rt->source_line = st->cur.line;
     rt->source_column = st->cur.column;
     switch (t) {
@@ -65,19 +67,21 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
         }
         return PIT_NIL;
     case PIT_LEX_TOKEN_LPAREN: {
-        // to construct a cons-list, we need the arguments "backwards"
-        // we could reverse or build up a temporary list
-        // (or use non-tail recursion, which is basically the temporary list on the stack)
-        // we choose to build a temporary list on the scratch arena
+        /* to construct a cons-list, we need the arguments "backwards"
+           we could reverse or build up a temporary list
+           (or use non-tail recursion, which is basically the temporary list on the stack)
+           we choose to build a temporary list on the scratch arena
+        */
         i64 scratch_reset = rt->scratch->next;
+        pit_value ret = PIT_NIL;
+        i64 i;
         while (!match(st, PIT_LEX_TOKEN_RPAREN)) {
             pit_value *cell = pit_arena_alloc_bulk(rt->scratch, sizeof(pit_value));
             *cell = pit_parse(rt, st, eof);
-            if (rt->error != PIT_NIL) return PIT_NIL; // if we hit an error, stop!
+            if (rt->error != PIT_NIL) return PIT_NIL; /* if we hit an error, stop!*/
         }
-        pit_value ret = PIT_NIL;
-        for (i64 i = rt->scratch->next - sizeof(pit_value); i >= scratch_reset; i -= sizeof(pit_value)) {
-            pit_value *v = pit_arena_idx(rt->scratch, i);
+        for (i = rt->scratch->next - (i64) sizeof(pit_value); i >= scratch_reset; i -= (i64) sizeof(pit_value)) {
+            pit_value *v = pit_arena_idx(rt->scratch, (i32) i);
             ret = pit_cons(rt, *v, ret);
         }
         rt->scratch->next = scratch_reset;
@@ -88,16 +92,18 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
     case PIT_LEX_TOKEN_INTEGER_LITERAL:
         get_token_string(st, buf, sizeof(buf));
         return pit_integer_new(rt, atoi(buf));
-    case PIT_LEX_TOKEN_STRING_LITERAL:
+    case PIT_LEX_TOKEN_STRING_LITERAL: {
+        i64 len, cur, i;
         get_token_string(st, buf, sizeof(buf));
-        i64 len = strlen(buf);
-        i64 cur = 0;
-        for (i64 i = 1; i < len; ++i) {
+        len = (i64) strlen(buf);
+        cur = 0;
+        for (i = 1; i < len; ++i) {
             if (buf[i] == '\\' && i + 1 < len) buf[cur++] = buf[++i];
             else if (buf[i] != '"') buf[cur++] = buf[i];
             else break;
         }
         return pit_bytes_new(rt, (u8 *) buf, cur);
+    }
     case PIT_LEX_TOKEN_SYMBOL:
         get_token_string(st, buf, sizeof(buf));
         return pit_intern_cstr(rt, buf);

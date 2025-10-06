@@ -7,7 +7,7 @@
 typedef struct {
     pit_lex_token token;
     i64 start, end;
-    i64 line, column; // for error reporting
+    i64 line, column; /* for error reporting */
 } pit_parser_token_info;
 
 typedef struct {

@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
-#include "utils.h"
+#include <lcq/pit/utils.h>
 
 void pit_panic(const char *format, ...) {
     va_list vargs;

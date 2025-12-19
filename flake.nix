@@ -28,6 +28,7 @@
             buildInputs = [
               pkgs.musl
               pkgs.valgrind
+              pkgs.universal-ctags
             ];
           };
         }

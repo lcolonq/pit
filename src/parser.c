@@ -2,10 +2,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "types.h"
-#include "lexer.h"
-#include "parser.h"
-#include "runtime.h"
+#include "lcq/pit/types.h"
+#include "lcq/pit/lexer.h"
+#include "lcq/pit/parser.h"
+#include "lcq/pit/runtime.h"
 
 static pit_lex_token peek(pit_parser *st) {
     if (!st) return PIT_LEX_TOKEN_ERROR;
@@ -50,9 +50,8 @@ void pit_parser_from_lexer(pit_parser *ret, pit_lexer *lex) {
 /* parse a single expression */
 pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
     char buf[256] = {0};
-    pit_lex_token t;
     if (rt == NULL || st == NULL) return PIT_NIL;
-    t = advance(st);
+    pit_lex_token t = advance(st);
     rt->source_line = st->cur.line;
     rt->source_column = st->cur.column;
     switch (t) {
@@ -74,13 +73,15 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
         */
         i64 scratch_reset = rt->scratch->next;
         pit_value ret = PIT_NIL;
-        i64 i;
         while (!match(st, PIT_LEX_TOKEN_RPAREN)) {
             pit_value *cell = pit_arena_alloc_bulk(rt->scratch, sizeof(pit_value));
             *cell = pit_parse(rt, st, eof);
             if (rt->error != PIT_NIL) return PIT_NIL; /* if we hit an error, stop!*/
         }
-        for (i = rt->scratch->next - (i64) sizeof(pit_value); i >= scratch_reset; i -= (i64) sizeof(pit_value)) {
+        for (i64 i = rt->scratch->next - (i64) sizeof(pit_value);
+             i >= scratch_reset;
+             i -= (i64) sizeof(pit_value)
+        ) {
             pit_value *v = pit_arena_idx(rt->scratch, (i32) i);
             ret = pit_cons(rt, *v, ret);
         }
@@ -93,11 +94,10 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
         get_token_string(st, buf, sizeof(buf));
         return pit_integer_new(rt, atoi(buf));
     case PIT_LEX_TOKEN_STRING_LITERAL: {
-        i64 len, cur, i;
         get_token_string(st, buf, sizeof(buf));
-        len = (i64) strlen(buf);
-        cur = 0;
-        for (i = 1; i < len; ++i) {
+        i64 len = (i64) strlen(buf);
+        i64 cur = 0;
+        for (i64 i = 1; i < len; ++i) {
             if (buf[i] == '\\' && i + 1 < len) buf[cur++] = buf[++i];
             else if (buf[i] != '"') buf[cur++] = buf[i];
             else break;

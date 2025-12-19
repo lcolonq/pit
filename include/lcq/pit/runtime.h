@@ -1,16 +1,16 @@
-#ifndef PIT_RUNTIME_H
-#define PIT_RUNTIME_H
+#ifndef LCOLONQ_PIT_RUNTIME_H
+#define LCOLONQ_PIT_RUNTIME_H
 
-#include "types.h"
-#include "utils.h"
-#include "lexer.h"
+#include <lcq/pit/types.h>
+#include <lcq/pit/utils.h>
+#include <lcq/pit/lexer.h>
 
 struct pit_runtime;
 
 /* arenas */
 typedef struct {
     i64 elem_size, capacity, next;
-    u8 data[1]; /* flexible array member */
+    u8 data[];
 } pit_arena;
 pit_arena *pit_arena_new(i64 capacity, i64 elem_size);
 i32 pit_arena_next_idx(pit_arena *a);
@@ -22,6 +22,7 @@ void *pit_arena_alloc_bulk(pit_arena *a, i64 num);
 
 /* nil is always the symbol with index 0 */
 #define PIT_NIL 0xfff4000000000000 /* 0b1111111111110100000000000000000000000000000000000000000000000000 */
+#define PIT_T   0xfff4000000000001 /* 0b1111111111110100000000000000000000000000000000000000000000000001 */
 
 enum pit_value_sort {
     PIT_VALUE_SORT_DOUBLE  = 0, /* 0b00 - double */
@@ -37,7 +38,7 @@ u64 pit_value_data(pit_value v);
 
 typedef struct {
     i64 top, cap;
-    pit_value data[1]; /* flexible array member */
+    pit_value data[];
 } pit_values;
 pit_values *pit_values_new(i64 capacity);
 void pit_values_push(struct pit_runtime *rt, pit_values *s, pit_value x);
@@ -51,7 +52,8 @@ typedef struct { /* "heavy" values, the targets of refs */
         PIT_VALUE_HEAVY_SORT_ARRAY, /* fixed-size array of values */
         PIT_VALUE_HEAVY_SORT_BYTES, /* bytestring */
         PIT_VALUE_HEAVY_SORT_FUNC, /* Lisp closure */
-        PIT_VALUE_HEAVY_SORT_NATIVEFUNC /* native function */
+        PIT_VALUE_HEAVY_SORT_NATIVEFUNC, /* native function */
+        PIT_VALUE_HEAVY_SORT_NATIVEDATA /* native data (C pointer) */
     } hsort;
     union {
         pit_value cell;
@@ -60,6 +62,7 @@ typedef struct { /* "heavy" values, the targets of refs */
         struct { u8 *data; i64 len; } bytes;
         struct { pit_value env; pit_value args; pit_value body; } func;
         pit_nativefunc nativefunc;
+        struct { pit_value tag; void *data; } nativedata;
     } in;
 } pit_value_heavy;
 
@@ -83,7 +86,7 @@ typedef struct {
 } pit_runtime_eval_program_entry;
 typedef struct {
     i64 top, cap;
-    pit_runtime_eval_program_entry data[1]; /* flexible array member */
+    pit_runtime_eval_program_entry data[];
 } pit_runtime_eval_program;
 pit_runtime_eval_program *pit_runtime_eval_program_new(i64 capacity);
 void pit_runtime_eval_program_push_literal(struct pit_runtime *rt, pit_runtime_eval_program *s, pit_value x);
@@ -144,6 +147,7 @@ bool pit_is_array(pit_runtime *rt, pit_value a);
 bool pit_is_bytes(pit_runtime *rt, pit_value a);
 bool pit_is_func(pit_runtime *rt, pit_value a);
 bool pit_is_nativefunc(pit_runtime *rt, pit_value a);
+bool pit_is_nativedata(pit_runtime *rt, pit_value a);
 bool pit_eq(pit_value a, pit_value b);
 bool pit_equal(pit_runtime *rt, pit_value a, pit_value b);
 
@@ -198,6 +202,10 @@ pit_value pit_free_vars(pit_runtime *rt, pit_value args, pit_value body);
 pit_value pit_lambda(pit_runtime *rt, pit_value args, pit_value body);
 pit_value pit_nativefunc_new(pit_runtime *rt, pit_nativefunc f);
 pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args);
+
+/* working with native data */
+pit_value pit_nativedata_new(pit_runtime *rt, pit_value tag, void *d);
+
 
 /* evaluation! */
 pit_value pit_expand_macros(pit_runtime *rt, pit_value top);

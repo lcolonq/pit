@@ -1,5 +1,5 @@
-#ifndef PIT_TYPES_H
-#define PIT_TYPES_H
+#ifndef LCOLONQ_PIT_TYPES_H
+#define LCOLONQ_PIT_TYPES_H
 
 #include <stdbool.h>
 #include <stdint.h>

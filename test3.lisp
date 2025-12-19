@@ -1,0 +1,6 @@
+(let ((bs (bs/new!)))
+  (print! bs)
+  (bs/grow! 1 bs)
+  (bs/write8! bs 0 67)
+  (bs/spit! "test3.bin" bs)
+  )

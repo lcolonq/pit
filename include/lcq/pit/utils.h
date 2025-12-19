@@ -1,5 +1,5 @@
-#ifndef PIT_UTILS_H
-#define PIT_UTILS_H
+#ifndef LCOLONQ_PIT_UTILS_H
+#define LCOLONQ_PIT_UTILS_H
 
 #include <stdckdint.h>
 
@@ -8,6 +8,5 @@
 void pit_panic(const char *format, ...);
 void pit_debug(const char *format, ...);
 #define pit_mul(result, a, b) if (ckd_mul(result, a, b)) pit_panic("integer overflow during multiplication%s","");
-
 
 #endif

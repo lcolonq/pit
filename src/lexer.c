@@ -3,9 +3,9 @@
 #include <string.h>
 #include <ctype.h>
 
-#include "utils.h"
-#include "lexer.h"
-#include "types.h"
+#include <lcq/pit/utils.h>
+#include <lcq/pit/lexer.h>
+#include <lcq/pit/types.h>
 
 const char *PIT_LEX_TOKEN_NAMES[PIT_LEX_TOKEN__SENTINEL] = {
     /* [PIT_LEX_TOKEN_EOF] = */ "eof",
@@ -77,16 +77,14 @@ void pit_lex_bytes(pit_lexer *ret, char *buf, i64 len) {
 }
 void pit_lex_file(pit_lexer *ret, char *path) {
     FILE *f = fopen(path, "r");
-    i64 len = 0;
-    char *buf = NULL;
     if (f == NULL) {
         pit_panic("failed to open file for lexing: %s", path);
         return;
     }
     fseek(f, 0, SEEK_END);
-    len = ftell(f);
+    i64 len = ftell(f);
     fseek(f, 0, SEEK_SET);
-    buf = calloc((size_t) ret->len, sizeof(char));
+    char *buf = calloc((size_t) ret->len, sizeof(char));
     if ((size_t) ret->len != fread(ret->input, sizeof(char), (size_t) ret->len, f)) {
         pit_panic("failed to read file for lexing: %s", path);
         return;
@@ -96,12 +94,11 @@ void pit_lex_file(pit_lexer *ret, char *path) {
 }
 
 pit_lex_token pit_lex_next(pit_lexer *st) {
-    char c = 0;
 restart:
     st->start = st->end;
     st->start_line = st->line;
     st->start_column = st->column;
-    c = advance(st);
+    char c = advance(st);
     switch (c) {
     case 0: return PIT_LEX_TOKEN_EOF;
     case ';': while (is_more_input(st) && advance(st) != '\n'); goto restart;

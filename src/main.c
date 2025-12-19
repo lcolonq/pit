@@ -1,10 +1,10 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "utils.h"
-#include "lexer.h"
-#include "parser.h"
-#include "runtime.h"
+#include <lcq/pit/utils.h>
+#include <lcq/pit/lexer.h>
+#include <lcq/pit/parser.h>
+#include <lcq/pit/runtime.h>
 
 int main(int argc, char **argv) {
     pit_runtime *rt = pit_runtime_new();
@@ -12,6 +12,7 @@ int main(int argc, char **argv) {
         char buf[1024] = {0};
         i64 len = 0;
         pit_runtime_freeze(rt);
+        if (pit_runtime_print_error(rt)) { exit(1); }
         setbuf(stdout, NULL);
         printf("> ");
         while (len < (i64) sizeof(buf) && (buf[len++] = (char) getchar()) != EOF) {

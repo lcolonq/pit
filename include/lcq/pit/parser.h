@@ -1,8 +1,8 @@
-#ifndef PIT_PARSER_H
-#define PIT_PARSER_H
+#ifndef LCOLONQ_PIT_PARSER_H
+#define LCOLONQ_PIT_PARSER_H
 
-#include "lexer.h"
-#include "runtime.h"
+#include <lcq/pit/lexer.h>
+#include <lcq/pit/runtime.h>
 
 typedef struct {
     pit_lex_token token;

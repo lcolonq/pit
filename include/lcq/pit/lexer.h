@@ -1,7 +1,7 @@
-#ifndef LEXER_H
-#define LEXER_H
+#ifndef LCOLONQ_PIT_LEXER_H
+#define LCOLONQ_PIT_LEXER_H
 
-#include "types.h"
+#include <lcq/pit/types.h>
 
 typedef enum {
     PIT_LEX_TOKEN_ERROR=-1,

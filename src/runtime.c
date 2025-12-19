@@ -5,11 +5,11 @@
 #include <string.h>
 #include <math.h>
 
-#include "utils.h"
-#include "lexer.h"
-#include "parser.h"
-#include "runtime.h"
-#include "library.h"
+#include <lcq/pit/utils.h>
+#include <lcq/pit/lexer.h>
+#include <lcq/pit/parser.h>
+#include <lcq/pit/runtime.h>
+#include <lcq/pit/library.h>
 
 pit_arena *pit_arena_new(i64 capacity, i64 elem_size) {
     pit_arena *a = malloc(sizeof(pit_arena) + (size_t) capacity * (size_t) elem_size);
@@ -19,7 +19,7 @@ pit_arena *pit_arena_new(i64 capacity, i64 elem_size) {
     return a;
 }
 i32 pit_arena_next_idx(pit_arena *a) {
-    i32 byte_idx; pit_mul(&byte_idx, a->elem_size, a->next);
+    i32 byte_idx = 0; pit_mul(&byte_idx, a->elem_size, a->next);
     return byte_idx;
 }
 i32 pit_arena_alloc_idx(pit_arena *a) {
@@ -30,7 +30,7 @@ i32 pit_arena_alloc_idx(pit_arena *a) {
 }
 i32 pit_arena_alloc_bulk_idx(pit_arena *a, i64 num) {
     i32 byte_idx = pit_arena_next_idx(a);
-    i32 byte_len; pit_mul(&byte_len, a->elem_size, num);
+    i32 byte_len = 0; pit_mul(&byte_len, a->elem_size, num);
     if (byte_idx + byte_len > a->capacity) { return -1; }
     a->next += num;
     return byte_idx;
@@ -68,10 +68,9 @@ u64 pit_value_data(pit_value v) {
 
 pit_runtime *pit_runtime_new() {
     pit_runtime *ret = malloc(sizeof(*ret));
-    pit_value nil, truth;
     ret->values = pit_arena_new(64 * 1024, sizeof(pit_value_heavy));
     ret->bytes = pit_arena_new(64 * 1024, sizeof(u8));
-    ret->symtab = pit_arena_new(1024, sizeof(pit_symtab_entry));
+    ret->symtab = pit_arena_new(64 * 1024, sizeof(pit_symtab_entry));
     ret->symtab_len = 0;
     ret->scratch = pit_arena_new(64 * 1024, sizeof(u8));
     ret->expr_stack = pit_values_new(1024);
@@ -84,11 +83,13 @@ pit_runtime *pit_runtime_new() {
     ret->error = PIT_NIL;
     ret->source_line = ret->source_column = -1;
     ret->error_line = ret->error_column = -1;
-    nil = pit_intern_cstr(ret, "nil"); /* nil must be the 0th symbol for PIT_NIL to work */
+    pit_value nil = pit_intern_cstr(ret, "nil"); /* nil must be the 0th symbol for PIT_NIL to work */
     pit_set(ret, nil, PIT_NIL);
-    truth = pit_intern_cstr(ret, "t");
+    pit_value truth = pit_intern_cstr(ret, "t");
     pit_set(ret, truth, truth);
     pit_install_library_essential(ret);
+    pit_install_library_io(ret);
+    pit_install_library_bytestring(ret);
     pit_runtime_freeze(ret);
     return ret;
 }
@@ -171,11 +172,10 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
                 return buf - start;
             }
             case PIT_VALUE_HEAVY_SORT_BYTES: {
-                i64 i, maxlen, j;
-                i = 0;
+                i64 i = 0;
                 if (readable) buf[i++] = '"';
-                maxlen = len - i;
-                for (j = 0; i < maxlen && j < h->in.bytes.len;) {
+                i64 maxlen = len - i;
+                for (i64 j = 0; i < maxlen && j < h->in.bytes.len;) {
                     if (buf[i - 1] != '\\' && (h->in.bytes.data[j] == '\\' || h->in.bytes.data[j] == '"'))
                         buf[i++] = '\\';
                     else buf[i++] = (char) h->in.bytes.data[j++];
@@ -200,13 +200,14 @@ void pit_trace_(pit_runtime *rt, const char *format, pit_value v) {
 }
 
 void pit_error(pit_runtime *rt, const char *format, ...) {
-    if (pit_eq(rt->error, PIT_NIL)) { /* only record the first error encountered */
+    if (rt->error == PIT_NIL) { /* only record the first error encountered */
         char buf[1024] = {0};
         va_list vargs;
         va_start(vargs, format);
         vsnprintf(buf, sizeof(buf), format, vargs);
         va_end(vargs);
-        rt->error = pit_bytes_new_cstr(rt, buf);
+        rt->error = PIT_T; /* we set the error now to prevent infinite recursion */
+        rt->error = pit_bytes_new_cstr(rt, buf); /* in case this errs also */
         rt->error_line = rt->source_line;
         rt->error_column = rt->source_column;
     }
@@ -242,12 +243,11 @@ pit_value pit_double_new(pit_runtime *rt, double d) {
 }
 
 i64 pit_as_integer(pit_runtime *rt, pit_value v) {
-    u64 lo;
     if (pit_value_sort(v) != PIT_VALUE_SORT_INTEGER) {
         pit_error(rt, "invalid use of value as integer");
         return -1;
     }
-    lo = pit_value_data(v);
+    u64 lo = pit_value_data(v);
     return ((i64) (lo << 15)) >> 15; /* sign-extend low 49 bits */
 
 }
@@ -328,6 +328,9 @@ bool pit_is_func(pit_runtime *rt, pit_value a) {
 bool pit_is_nativefunc(pit_runtime *rt, pit_value a) {
     return pit_is_value_heavy_sort(rt, a, PIT_VALUE_HEAVY_SORT_NATIVEFUNC);
 }
+bool pit_is_nativedata(pit_runtime *rt, pit_value a) {
+    return pit_is_value_heavy_sort(rt, a, PIT_VALUE_HEAVY_SORT_NATIVEDATA);
+}
 bool pit_eq(pit_value a, pit_value b) {
     return a == b;
 }
@@ -339,10 +342,9 @@ bool pit_equal(pit_runtime *rt, pit_value a, pit_value b) {
     case PIT_VALUE_SORT_SYMBOL:
         return pit_value_data(a) == pit_value_data(b);
     case PIT_VALUE_SORT_REF: {
-        pit_value_heavy *ha, *hb;
-        ha = pit_deref(rt, pit_as_ref(rt, a));
+        pit_value_heavy *ha = pit_deref(rt, pit_as_ref(rt, a));
         if (!ha) { pit_error(rt, "bad ref"); return false; }
-        hb = pit_deref(rt, pit_as_ref(rt, b));
+        pit_value_heavy *hb = pit_deref(rt, pit_as_ref(rt, b));
         if (!hb) { pit_error(rt, "bad ref"); return false; }
         if (ha->hsort != hb->hsort) return false;
         switch (ha->hsort) {
@@ -352,17 +354,15 @@ bool pit_equal(pit_runtime *rt, pit_value a, pit_value b) {
             return pit_equal(rt, ha->in.cons.car, hb->in.cons.car)
                 && pit_equal(rt, ha->in.cons.cdr, hb->in.cons.cdr);
         case PIT_VALUE_HEAVY_SORT_ARRAY: {
-            i64 i = 0;
             if (ha->in.array.len != hb->in.array.len) return false;
-            for (i = 0; i < ha->in.array.len; ++i) {
+            for (i64 i = 0; i < ha->in.array.len; ++i) {
                 if (!pit_equal(rt, ha->in.array.data[i], hb->in.array.data[i])) return false;
             }
             return true;
         }
         case PIT_VALUE_HEAVY_SORT_BYTES: {
-            i64 i = 0;
             if (ha->in.bytes.len != hb->in.bytes.len) return false;
-            for (i = 0; i < ha->in.bytes.len; ++i) {
+            for (i64 i = 0; i < ha->in.bytes.len; ++i) {
                 if (ha->in.bytes.data[i] != hb->in.bytes.data[i]) return false;
             }
             return true;
@@ -374,19 +374,21 @@ bool pit_equal(pit_runtime *rt, pit_value a, pit_value b) {
                 && pit_equal(rt, ha->in.func.body, hb->in.func.body);
         case PIT_VALUE_HEAVY_SORT_NATIVEFUNC:
             return ha->in.nativefunc == hb->in.nativefunc;
+        case PIT_VALUE_HEAVY_SORT_NATIVEDATA:
+            return
+                pit_eq(ha->in.nativedata.tag, hb->in.nativedata.tag)
+                && ha->in.nativedata.data == hb->in.nativedata.data;
         }
     }
     }
     return false;
 }
 pit_value pit_bytes_new(pit_runtime *rt, u8 *buf, i64 len) {
-    pit_value ret;
-    pit_value_heavy *h;
     u8 *dest = pit_arena_alloc_bulk(rt->bytes, len);
     if (!dest) { pit_error(rt, "failed to allocate bytes"); return PIT_NIL; }
     memcpy(dest, buf, (size_t) len);
-    ret = pit_heavy_new(rt);
-    h = pit_deref(rt, pit_as_ref(rt, ret));
+    pit_value ret = pit_heavy_new(rt);
+    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, ret));
     if (!h) { pit_error(rt, "failed to create new heavy value for bytes"); return PIT_NIL; }
     h->hsort = PIT_VALUE_HEAVY_SORT_BYTES;
     h->in.bytes.data = dest;
@@ -397,19 +399,16 @@ pit_value pit_bytes_new_cstr(pit_runtime *rt, char *s) {
     return pit_bytes_new(rt, (u8 *) s, (i64) strlen(s));
 }
 pit_value pit_bytes_new_file(pit_runtime *rt, char *path) {
+    if (rt->error != PIT_NIL) return PIT_NIL;
     FILE *f = fopen(path, "r");
-    i64 len;
-    u8 *dest;
-    pit_value ret;
-    pit_value_heavy *h;
     if (f == NULL) {
         pit_error(rt, "failed to open file: %s", path);
         return PIT_NIL;
     }
     fseek(f, 0, SEEK_END);
-    len = ftell(f);
+    i64 len = ftell(f);
     fseek(f, 0, SEEK_SET);
-    dest = pit_arena_alloc_bulk(rt->bytes, len);
+    u8 *dest = pit_arena_alloc_bulk(rt->bytes, len);
     if (!dest) { pit_error(rt, "failed to allocate bytes"); fclose(f); return PIT_NIL; }
     if ((size_t) len != fread(dest, sizeof(char), (size_t) len, f)) {
         fclose(f);
@@ -417,8 +416,8 @@ pit_value pit_bytes_new_file(pit_runtime *rt, char *path) {
         return PIT_NIL;
     }
     fclose(f);
-    ret = pit_heavy_new(rt);
-    h = pit_deref(rt, pit_as_ref(rt, ret));
+    pit_value ret = pit_heavy_new(rt);
+    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, ret));
     if (!h) { pit_error(rt, "failed to create new heavy value for bytes"); return PIT_NIL; }
     h->hsort = PIT_VALUE_HEAVY_SORT_BYTES;
     h->in.bytes.data = dest;
@@ -427,39 +426,34 @@ pit_value pit_bytes_new_file(pit_runtime *rt, char *path) {
 }
 /* return true if v is a reference to bytes that are the same as those in buf */
 bool pit_bytes_match(pit_runtime *rt, pit_value v, u8 *buf, i64 len) {
-    pit_value_heavy *h;
-    i64 i;
     if (pit_value_sort(v) != PIT_VALUE_SORT_REF) return false;
-    h = pit_deref(rt, pit_as_ref(rt, v));
+    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, v));
     if (!h) { pit_error(rt, "bad ref"); return false; }
     if (h->hsort != PIT_VALUE_HEAVY_SORT_BYTES) return false;
     if (h->in.bytes.len != len) return false;
-    for (i = 0; i < len; ++i)
+    for (i64 i = 0; i < len; ++i)
         if (h->in.bytes.data[i] != buf[i]) {
             return false;
         }
     return true;
 }
 i64 pit_as_bytes(pit_runtime *rt, pit_value v, u8 *buf, i64 maxlen) {
-    pit_value_heavy *h;
-    i64 len, i;
     if (pit_value_sort(v) != PIT_VALUE_SORT_REF) return -1;
-    h = pit_deref(rt, pit_as_ref(rt, v));
+    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, v));
     if (!h) { pit_error(rt, "bad ref"); return -1; }
     if (h->hsort != PIT_VALUE_HEAVY_SORT_BYTES) {
         pit_error(rt, "invalid use of value as bytes");
         return -1;
     }
-    len = maxlen < h->in.bytes.len ? maxlen : h->in.bytes.len;
-    for (i = 0; i < len; ++i) {
+    i64 len = maxlen < h->in.bytes.len ? maxlen : h->in.bytes.len;
+    for (i64 i = 0; i < len; ++i) {
         buf[i] = h->in.bytes.data[i];
     }
     return len;
 }
 bool pit_lexer_from_bytes(pit_runtime *rt, pit_lexer *ret, pit_value v) {
-    pit_value_heavy *h;
     if (pit_value_sort(v) != PIT_VALUE_SORT_REF) return false;
-    h = pit_deref(rt, pit_as_ref(rt, v));
+    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, v));
     if (!h) { pit_error(rt, "bad ref"); return false; }
     if (h->hsort != PIT_VALUE_HEAVY_SORT_BYTES) {
         pit_error(rt, "invalid use of value as bytes");
@@ -469,8 +463,8 @@ bool pit_lexer_from_bytes(pit_runtime *rt, pit_lexer *ret, pit_value v) {
     return true;
 }
 pit_value pit_read_bytes(pit_runtime *rt, pit_value v) { /* read a single lisp form from a bytestring */
-    pit_lexer lex;
-    pit_parser parse;
+    pit_lexer lex = {0};
+    pit_parser parse = {0};
     if (!pit_lexer_from_bytes(rt, &lex, v)) {
         pit_error(rt, "failed to initialize lexer");
         return PIT_NIL;
@@ -480,17 +474,15 @@ pit_value pit_read_bytes(pit_runtime *rt, pit_value v) { /* read a single lisp f
 }
 
 pit_value pit_intern(pit_runtime *rt, u8 *nm, i64 len) {
-    i64 i;
-    i32 idx;
-    pit_symtab_entry *ent;
-    for (i = 0; i < rt->symtab_len; ++i) {
+    if (rt->error != PIT_NIL) return PIT_NIL;
+    for (i64 i = 0; i < rt->symtab_len; ++i) {
         pit_symbol sidx = (pit_symbol) (i * (i64) sizeof(pit_symtab_entry));
         pit_symtab_entry *sent = pit_arena_idx(rt->symtab, sidx);
         if (!sent) { pit_error(rt, "corrupted symbol table"); return PIT_NIL; }
         if (pit_bytes_match(rt, sent->name, nm, len)) return pit_symbol_new(rt, sidx);
     }
-    idx = pit_arena_alloc_idx(rt->symtab);
-    ent = pit_arena_idx(rt->symtab, idx);
+    i32 idx = pit_arena_alloc_idx(rt->symtab);
+    pit_symtab_entry *ent = pit_arena_idx(rt->symtab, idx);
     if (!ent) { pit_error(rt, "failed to allocate symtab entry"); return PIT_NIL; }
     ent->name = pit_bytes_new(rt, nm, len);
     ent->value = PIT_NIL;
@@ -530,9 +522,8 @@ pit_value pit_get(pit_runtime *rt, pit_value sym) {
 }
 void pit_set(pit_runtime *rt, pit_value sym, pit_value v) {
     pit_symbol idx = pit_as_symbol(rt, sym);
-    pit_symtab_entry *ent;
     if (idx < rt->frozen_symtab) { pit_error(rt, "attempted to modify frozen symbol"); return; }
-    ent = pit_symtab_lookup(rt, sym);
+    pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
     if (!ent) { pit_error(rt, "bad symbol"); return; }
     if (pit_value_sort(ent->value) != PIT_VALUE_SORT_REF) {
         ent->value = pit_cell_new(rt, PIT_NIL);
@@ -544,9 +535,8 @@ pit_value pit_fget(pit_runtime *rt, pit_value sym) {
 }
 void pit_fset(pit_runtime *rt, pit_value sym, pit_value v) {
     pit_symbol idx = pit_as_symbol(rt, sym);
-    pit_symtab_entry *ent;
     if (idx < rt->frozen_symtab) { pit_error(rt, "attempted to modify frozen symbol"); return; }
-    ent = pit_symtab_lookup(rt, sym);
+    pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
     if (!ent) { pit_error(rt, "bad symbol"); return; }
     if (pit_value_sort(ent->function) != PIT_VALUE_SORT_REF) {
         ent->function = pit_cell_new(rt, PIT_NIL);
@@ -590,9 +580,8 @@ void pit_bind(pit_runtime *rt, pit_value sym, pit_value cell) {
 }
 pit_value pit_unbind(pit_runtime *rt, pit_value sym) {
     pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
-    pit_value old;
     if (!ent) { pit_error(rt, "bad symbol"); return PIT_NIL; }
-    old = ent->value;
+    pit_value old = ent->value;
     ent->value = pit_values_pop(rt, rt->saved_bindings);
     return old;
 }
@@ -606,12 +595,11 @@ pit_value pit_cell_new(pit_runtime *rt, pit_value v) {
     return ret;
 }
 pit_value pit_cell_get(pit_runtime *rt, pit_value cell) {
-    pit_value_heavy *h;
     if (pit_value_sort(cell) != PIT_VALUE_SORT_REF) {
         pit_error(rt, "attempted to get cell value that is not ref");
         return PIT_NIL;
     }
-    h = pit_deref(rt, pit_as_ref(rt, cell));
+    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, cell));
     if (!h) { pit_error(rt, "bad ref"); return PIT_NIL; }
     if (h->hsort != PIT_VALUE_HEAVY_SORT_CELL) {
         pit_error(rt, "cell value ref does not point to cell");
@@ -620,15 +608,13 @@ pit_value pit_cell_get(pit_runtime *rt, pit_value cell) {
     return h->in.cell;
 }
 void pit_cell_set(pit_runtime *rt, pit_value cell, pit_value v) {
-    pit_ref idx;
-    pit_value_heavy *h;
     if (pit_value_sort(cell) != PIT_VALUE_SORT_REF) {
         pit_error(rt, "attempted to set cell value that is not ref");
         return;
     }
-    idx = pit_as_ref(rt, cell);
+    pit_ref idx = pit_as_ref(rt, cell);
     if (idx < rt->frozen_values) { pit_error(rt, "attempt to modify frozen cell"); return; }
-    h = pit_deref(rt, idx);
+    pit_value_heavy *h = pit_deref(rt, idx);
     if (!h) { pit_error(rt, "bad ref"); return; }
     if (h->hsort != PIT_VALUE_HEAVY_SORT_CELL) {
         pit_error(rt, "cell value ref does not point to cell");
@@ -647,55 +633,48 @@ pit_value pit_cons(pit_runtime *rt, pit_value car, pit_value cdr) {
     return ret;
 }
 pit_value pit_list(pit_runtime *rt, i64 num, ...) {
-    pit_value temp[64];
-    va_list elems;
-    i64 i;
+    pit_value temp[64] = {0};
     pit_value ret = PIT_NIL;
     if (num > 64) { pit_error(rt, "failed to create list of size %d\n", num); return PIT_NIL; }
+    va_list elems;
     va_start(elems, num);
-    for (i = 0; i < num; ++i) {
+    for (i64 i = 0; i < num; ++i) {
         temp[i] = va_arg(elems, pit_value);
     }
     va_end(elems);
-    for (i = 0; i < num; ++i) {
+    for (i64 i = 0; i < num; ++i) {
         ret = pit_cons(rt, temp[num - i - 1], ret);
     }
     return ret;
 }
 pit_value pit_car(pit_runtime *rt, pit_value v) {
-    pit_value_heavy *h;
     if (pit_value_sort(v) != PIT_VALUE_SORT_REF) return PIT_NIL;
-    h = pit_deref(rt, pit_as_ref(rt, v));
+    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, v));
     if (!h) { pit_error(rt, "bad ref"); return PIT_NIL; }
     if (h->hsort != PIT_VALUE_HEAVY_SORT_CONS) return PIT_NIL;
     return h->in.cons.car;
 }
 pit_value pit_cdr(pit_runtime *rt, pit_value v) {
-    pit_value_heavy *h;
     if (pit_value_sort(v) != PIT_VALUE_SORT_REF) return PIT_NIL;
-    h = pit_deref(rt, pit_as_ref(rt, v));
+    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, v));
     if (!h) { pit_error(rt, "bad ref"); return PIT_NIL; }
     if (h->hsort != PIT_VALUE_HEAVY_SORT_CONS) return PIT_NIL;
     return h->in.cons.cdr;
 }
 void pit_setcar(pit_runtime *rt, pit_value v, pit_value x) {
-    pit_ref idx;
-    pit_value_heavy *h;
     if (pit_value_sort(v) != PIT_VALUE_SORT_REF) { pit_error(rt, "not a ref"); return; }
-    idx = pit_as_ref(rt, v);
+    pit_ref idx = pit_as_ref(rt, v);
     if (idx < rt->frozen_values) { pit_error(rt, "attempted to modify frozen cons"); return; }
-    h = pit_deref(rt, idx);
+    pit_value_heavy *h = pit_deref(rt, idx);
     if (!h) { pit_error(rt, "bad ref"); return; }
     if (h->hsort != PIT_VALUE_HEAVY_SORT_CONS) { pit_error(rt, "not a cons"); return; }
     h->in.cons.car = x;
 }
 void pit_setcdr(pit_runtime *rt, pit_value v, pit_value x) {
-    pit_ref idx;
-    pit_value_heavy *h;
     if (pit_value_sort(v) != PIT_VALUE_SORT_REF) { pit_error(rt, "not a ref"); return; }
-    idx = pit_as_ref(rt, v);
+    pit_ref idx = pit_as_ref(rt, v);
     if (idx < rt->frozen_values) { pit_error(rt, "attempted to modify frozen cons"); return; }
-    h = pit_deref(rt, idx);
+    pit_value_heavy *h = pit_deref(rt, idx);
     if (!h) { pit_error(rt, "bad ref"); return; }
     if (h->hsort != PIT_VALUE_HEAVY_SORT_CONS) { pit_error(rt, "not a cons"); return; }
     h->in.cons.cdr = x;
@@ -761,11 +740,10 @@ pit_value pit_free_vars(pit_runtime *rt, pit_value bound, pit_value body) {
 pit_value pit_lambda(pit_runtime *rt, pit_value args, pit_value body) {
     pit_value ret = pit_heavy_new(rt);
     pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, ret));
-    pit_value expanded, freevars, env, arg_cells;
     if (!h) { pit_error(rt, "failed to create new heavy value for lambda"); return PIT_NIL; }
-    expanded = pit_expand_macros(rt, pit_cons(rt, pit_intern_cstr(rt, "progn"), body));
-    freevars = pit_free_vars(rt, args, expanded);
-    env = PIT_NIL;
+    pit_value expanded = pit_expand_macros(rt, pit_cons(rt, pit_intern_cstr(rt, "progn"), body));
+    pit_value freevars = pit_free_vars(rt, args, expanded);
+    pit_value env = PIT_NIL;
     while (freevars != PIT_NIL) {
         pit_value sym = pit_car(rt, freevars);
         pit_value cell = pit_get_value_cell(rt, sym);
@@ -773,7 +751,7 @@ pit_value pit_lambda(pit_runtime *rt, pit_value args, pit_value body) {
         freevars = pit_cdr(rt, freevars);
     }
     h->hsort = PIT_VALUE_HEAVY_SORT_FUNC;
-    arg_cells = PIT_NIL;
+    pit_value arg_cells = PIT_NIL;
     while (args != PIT_NIL) {
         pit_value nm = pit_car(rt, args);
         pit_value ent = pit_cons(rt, nm, pit_cell_new(rt, PIT_NIL));
@@ -803,7 +781,6 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
             /* calling a Lisp function is simple! */
             pit_value bound = PIT_NIL;
             pit_value env = h->in.func.env;
-            pit_value anames, ret;
             while (env != PIT_NIL) { /* first, bind all entries in the closure */
                 pit_value b = pit_car(rt, env);
                 pit_value nm = pit_car(rt, b);
@@ -811,7 +788,7 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
                 bound = pit_cons(rt, nm, bound);
                 env = pit_cdr(rt, env);
             }
-            anames = h->in.func.args;
+            pit_value anames = h->in.func.args;
             while (anames != PIT_NIL) { /* bind all argument names to their values */
                 pit_value aform = pit_car(rt, anames);
                 pit_value nm = pit_car(rt, aform);
@@ -822,7 +799,7 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
                 args = pit_cdr(rt, args);
                 anames = pit_cdr(rt, anames);
             }
-            ret = pit_eval(rt, h->in.func.body); /* evaluate the body */
+            pit_value ret = pit_eval(rt, h->in.func.body); /* evaluate the body */
             while (bound != PIT_NIL) { /* unbind everything we bound earlier, in reverse */
                 pit_unbind(rt, pit_car(rt, bound));
                 bound = pit_cdr(rt, bound);
@@ -840,6 +817,16 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
         pit_error(rt, "attempted to apply non-function value");
         return PIT_NIL;
     }
+}
+
+pit_value pit_nativedata_new(pit_runtime *rt, pit_value tag, void *d) {
+    pit_value ret = pit_heavy_new(rt);
+    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, ret));
+    if (!h) { pit_error(rt, "failed to create new heavy value for nativedata"); return PIT_NIL; }
+    h->hsort = PIT_VALUE_HEAVY_SORT_NATIVEDATA;
+    h->in.nativedata.tag = tag;
+    h->in.nativedata.data = d;
+    return ret;
 }
 
 pit_values *pit_values_new(i64 capacity) {
@@ -885,7 +872,6 @@ pit_value pit_expand_macros(pit_runtime *rt, pit_value top) {
     i64 expr_stack_reset = rt->expr_stack->top;
     i64 result_stack_reset = rt->result_stack->top;
     i64 program_reset = rt->program->top;
-    i64 idx;
     pit_values_push(rt, rt->expr_stack, top);
     while (rt->expr_stack->top > expr_stack_reset) {
         pit_value cur;
@@ -939,7 +925,7 @@ pit_value pit_expand_macros(pit_runtime *rt, pit_value top) {
             pit_runtime_eval_program_push_literal(rt, rt->program, cur);
         }
     }
-    for (idx = rt->program->top - 1; idx >= program_reset; --idx) {
+    for (i64 idx = rt->program->top - 1; idx >= program_reset; --idx) {
         pit_runtime_eval_program_entry *ent;
         if (rt->error != PIT_NIL) goto end;
         ent = &rt->program->data[idx];
@@ -950,8 +936,7 @@ pit_value pit_expand_macros(pit_runtime *rt, pit_value top) {
         case EVAL_PROGRAM_ENTRY_APPLY: {
             pit_value f = pit_values_pop(rt, rt->result_stack);
             pit_value args = PIT_NIL;
-            i64 i;
-            for (i = 0; i < ent->in.apply; ++i) {
+            for (i64 i = 0; i < ent->in.apply; ++i) {
                 args = pit_cons(rt, pit_values_pop(rt, rt->result_stack), args);
             }
             pit_values_push(rt, rt->result_stack, pit_cons(rt, f, args));
@@ -975,7 +960,6 @@ pit_value pit_eval(pit_runtime *rt, pit_value top) {
     i64 expr_stack_reset = rt->expr_stack->top;
     i64 result_stack_reset = rt->result_stack->top;
     i64 program_reset = rt->program->top;
-    i64 idx;
     pit_values_push(rt, rt->expr_stack, top);
     /* first, convert the expression tree into "polish notation" in program */
     while (rt->expr_stack->top > expr_stack_reset) {
@@ -1021,7 +1005,7 @@ pit_value pit_eval(pit_runtime *rt, pit_value top) {
     }
     /* then, execute the polish notation program from right to left
        this has the nice consequence of putting the arguments in the right order */
-    for (idx = rt->program->top - 1; idx >= program_reset; --idx) {
+    for (i64 idx = rt->program->top - 1; idx >= program_reset; --idx) {
         pit_runtime_eval_program_entry *ent;
         if (rt->error != PIT_NIL) goto end;
         ent = &rt->program->data[idx];
@@ -1032,8 +1016,7 @@ pit_value pit_eval(pit_runtime *rt, pit_value top) {
         case EVAL_PROGRAM_ENTRY_APPLY: {
             pit_value f = pit_values_pop(rt, rt->result_stack);
             pit_value args = PIT_NIL;
-            i64 i;
-            for (i = 0; i < ent->in.apply; ++i) {
+            for (i64 i = 0; i < ent->in.apply; ++i) {
                 args = pit_cons(rt, pit_values_pop(rt, rt->result_stack), args);
             }
             pit_values_push(rt, rt->result_stack, pit_apply(rt, f, args));

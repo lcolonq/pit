@@ -196,6 +196,7 @@ void pit_setcdr(pit_runtime *rt, pit_value v, pit_value x);
 pit_value pit_append(pit_runtime *rt, pit_value xs, pit_value ys);
 pit_value pit_reverse(pit_runtime *rt, pit_value xs);
 pit_value pit_contains_eq(pit_runtime *rt, pit_value needle, pit_value haystack);
+pit_value pit_plist_get(pit_runtime *rt, pit_value k, pit_value vs);
 
 /* working with functions */
 pit_value pit_free_vars(pit_runtime *rt, pit_value args, pit_value body);

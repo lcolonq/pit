@@ -325,13 +325,7 @@ void pit_install_library_io(pit_runtime *rt) {
 static pit_value impl_plist_get(pit_runtime *rt, pit_value args) {
     pit_value k = pit_car(rt, args);
     pit_value vs = pit_car(rt, pit_cdr(rt, args));
-    while (vs != PIT_NIL) {
-        if (pit_eq(k, pit_car(rt, vs))) {
-            return pit_car(rt, pit_cdr(rt, vs));
-        }
-        vs = pit_cdr(rt, vs);
-    }
-    return PIT_NIL;
+    return pit_plist_get(rt, k, vs);
 }
 void pit_install_library_plist(pit_runtime *rt) {
     /* property lists / keyword arguments */

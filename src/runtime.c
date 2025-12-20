@@ -701,6 +701,15 @@ pit_value pit_contains_eq(pit_runtime *rt, pit_value needle, pit_value haystack)
     }
     return PIT_NIL;
 }
+pit_value pit_plist_get(pit_runtime *rt, pit_value k, pit_value vs) {
+    while (vs != PIT_NIL) {
+        if (pit_eq(k, pit_car(rt, vs))) {
+            return pit_car(rt, pit_cdr(rt, vs));
+        }
+        vs = pit_cdr(rt, vs);
+    }
+    return PIT_NIL;
+}
 
 pit_value pit_free_vars(pit_runtime *rt, pit_value bound, pit_value body) {
     i64 expr_stack_reset = rt->expr_stack->top;

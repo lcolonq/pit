@@ -5,6 +5,7 @@
 
 void pit_install_library_essential(pit_runtime *rt);
 void pit_install_library_io(pit_runtime *rt);
+void pit_install_library_plist(pit_runtime *rt);
 void pit_install_library_bytestring(pit_runtime *rt);
 
 #endif

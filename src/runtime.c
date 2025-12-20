@@ -87,9 +87,6 @@ pit_runtime *pit_runtime_new() {
     pit_set(ret, nil, PIT_NIL);
     pit_value truth = pit_intern_cstr(ret, "t");
     pit_set(ret, truth, truth);
-    pit_install_library_essential(ret);
-    pit_install_library_io(ret);
-    pit_install_library_bytestring(ret);
     pit_runtime_freeze(ret);
     return ret;
 }
@@ -489,6 +486,7 @@ pit_value pit_intern(pit_runtime *rt, u8 *nm, i64 len) {
     ent->function = PIT_NIL;
     ent->is_macro = false;
     ent->is_special_form = false;
+    ent->is_keyword = len >= 1 && nm[0] == ':';
     rt->symtab_len += 1;
     return pit_symbol_new(rt, idx);
 }
@@ -708,7 +706,7 @@ pit_value pit_free_vars(pit_runtime *rt, pit_value bound, pit_value body) {
     i64 expr_stack_reset = rt->expr_stack->top;
     pit_value ret = PIT_NIL;
     pit_values_push(rt, rt->expr_stack, body);
-    while (rt->expr_stack->top > 0) {
+    while (rt->expr_stack->top > expr_stack_reset) {
         pit_value cur = pit_values_pop(rt, rt->expr_stack);
         if (pit_is_cons(rt, cur)) {
             pit_value fsym = pit_car(rt, cur);
@@ -752,14 +750,26 @@ pit_value pit_lambda(pit_runtime *rt, pit_value args, pit_value body) {
     }
     h->hsort = PIT_VALUE_HEAVY_SORT_FUNC;
     pit_value arg_cells = PIT_NIL;
+    pit_value arg_rest_nm = PIT_NIL;
+    pit_value separator = pit_intern_cstr(rt, "&");
     while (args != PIT_NIL) {
         pit_value nm = pit_car(rt, args);
-        pit_value ent = pit_cons(rt, nm, pit_cell_new(rt, PIT_NIL));
-        arg_cells = pit_cons(rt, ent, arg_cells);
-        args = pit_cdr(rt, args);
+        if (pit_eq(nm, separator)) {
+            pit_value next_nm = pit_car(rt, pit_cdr(rt, args));
+            if (next_nm == PIT_NIL) { pit_error(rt, "invalid & in lambda list"); return PIT_NIL; }
+            arg_rest_nm = next_nm;
+            pit_value ent = pit_cons(rt, next_nm, pit_cell_new(rt, PIT_NIL));
+            arg_cells = pit_cons(rt, ent, arg_cells);
+            break;
+        } else {
+            pit_value ent = pit_cons(rt, nm, pit_cell_new(rt, PIT_NIL));
+            arg_cells = pit_cons(rt, ent, arg_cells);
+            args = pit_cdr(rt, args);
+        }
     }
     arg_cells = pit_reverse(rt, arg_cells);
     h->in.func.args = arg_cells;
+    h->in.func.arg_rest_nm = arg_rest_nm;
     h->in.func.env = env;
     h->in.func.body = expanded;
     return ret;
@@ -793,8 +803,14 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
                 pit_value aform = pit_car(rt, anames);
                 pit_value nm = pit_car(rt, aform);
                 pit_value cell = pit_cdr(rt, aform);
-                pit_cell_set(rt, cell, pit_car(rt, args));
-                pit_bind(rt, nm, cell);
+                if (h->in.func.arg_rest_nm != PIT_NIL && pit_eq(nm, h->in.func.arg_rest_nm)) {
+                    pit_cell_set(rt, cell, args);
+                    pit_bind(rt, nm, cell);
+                    break;
+                } else {
+                    pit_cell_set(rt, cell, pit_car(rt, args));
+                    pit_bind(rt, nm, cell);
+                }
                 bound = pit_cons(rt, nm, bound);
                 args = pit_cdr(rt, args);
                 anames = pit_cdr(rt, anames);
@@ -998,7 +1014,12 @@ pit_value pit_eval(pit_runtime *rt, pit_value top) {
                 }
             }
         } else if (pit_is_symbol(rt, cur)) { /* unquoted symbols: variable lookup */
-            pit_runtime_eval_program_push_literal(rt, rt->program, pit_get(rt, cur));
+            pit_symtab_entry *ent = pit_symtab_lookup(rt, cur);
+            if (ent->is_keyword) {
+                pit_runtime_eval_program_push_literal(rt, rt->program, cur);
+            } else {
+                pit_runtime_eval_program_push_literal(rt, rt->program, pit_get(rt, cur));
+            }
         } else { /* other expressions evaluate to themselves! */
             pit_runtime_eval_program_push_literal(rt, rt->program, cur);
         }

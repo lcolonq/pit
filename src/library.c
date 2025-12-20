@@ -322,6 +322,22 @@ void pit_install_library_io(pit_runtime *rt) {
     pit_fset(rt, pit_intern_cstr(rt, "load!"), pit_nativefunc_new(rt, impl_load));
 }
 
+static pit_value impl_plist_get(pit_runtime *rt, pit_value args) {
+    pit_value k = pit_car(rt, args);
+    pit_value vs = pit_car(rt, pit_cdr(rt, args));
+    while (vs != PIT_NIL) {
+        if (pit_eq(k, pit_car(rt, vs))) {
+            return pit_car(rt, pit_cdr(rt, vs));
+        }
+        vs = pit_cdr(rt, vs);
+    }
+    return PIT_NIL;
+}
+void pit_install_library_plist(pit_runtime *rt) {
+    /* property lists / keyword arguments */
+    pit_fset(rt, pit_intern_cstr(rt, "plist/get"), pit_nativefunc_new(rt, impl_plist_get));
+}
+
 struct bytestring {
     i64 len, cap;
     u8 *data;
@@ -373,8 +389,10 @@ static pit_value impl_bs_delete(pit_runtime *rt, pit_value args) {
         return PIT_NIL;
     }
     struct bytestring *bs = h->in.nativedata.data;
-    if (bs->data) free(bs->data); bs->data = NULL;
-    free(bs); h->in.nativedata.data = NULL;
+    if (bs->data) free(bs->data);
+    bs->data = NULL;
+    free(bs);
+    h->in.nativedata.data = NULL;
     return PIT_T;
 }
 static pit_value impl_bs_grow(pit_runtime *rt, pit_value args) {
@@ -390,6 +408,7 @@ static pit_value impl_bs_grow(pit_runtime *rt, pit_value args) {
         }
         bs->len = sz;
     }
+    return v;
 }
 static pit_value impl_bs_spit(pit_runtime *rt, pit_value args) {
     pit_value path = pit_car(rt, args);

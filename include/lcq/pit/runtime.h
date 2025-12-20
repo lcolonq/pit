@@ -60,7 +60,7 @@ typedef struct { /* "heavy" values, the targets of refs */
         struct { pit_value car, cdr; } cons;
         struct { pit_value *data; i64 len; } array;
         struct { u8 *data; i64 len; } bytes;
-        struct { pit_value env; pit_value args; pit_value body; } func;
+        struct { pit_value env; pit_value args; pit_value arg_rest_nm; pit_value body; } func;
         pit_nativefunc nativefunc;
         struct { pit_value tag; void *data; } nativedata;
     } in;
@@ -70,7 +70,7 @@ typedef struct {
     pit_value name; /* ref to bytestring */
     pit_value value; /* ref to cell */
     pit_value function; /* ref to cell */
-    bool is_macro, is_special_form;
+    bool is_macro, is_special_form, is_keyword;
 } pit_symtab_entry;
 
 /* "programs"; vectors of "instructions" for a very simple VM used by the evaluator */
@@ -205,7 +205,6 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args);
 
 /* working with native data */
 pit_value pit_nativedata_new(pit_runtime *rt, pit_value tag, void *d);
-
 
 /* evaluation! */
 pit_value pit_expand_macros(pit_runtime *rt, pit_value top);

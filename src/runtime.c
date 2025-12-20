@@ -853,6 +853,28 @@ pit_value pit_nativedata_new(pit_runtime *rt, pit_value tag, void *d) {
     h->in.nativedata.data = d;
     return ret;
 }
+void *pit_nativedata_get(pit_runtime *rt, pit_value tag, pit_value v) {
+    pit_value_heavy *h = NULL;
+    if (pit_value_sort(v) != PIT_VALUE_SORT_REF) {
+        pit_error(rt, "value was not a reference");
+        return NULL;
+    }
+    h = pit_deref(rt, pit_as_ref(rt, v));
+    if (!h) { pit_error(rt, "bad ref"); return NULL; }
+    if (h->hsort != PIT_VALUE_HEAVY_SORT_NATIVEDATA) {
+        pit_error(rt, "invalid use of value as nativedata");
+        return NULL;
+    }
+    if (!pit_eq(h->in.nativedata.tag, tag)) {
+        pit_error(rt, "native value does not match tag");
+        return NULL;
+    }
+    if (!h->in.nativedata.data) {
+        pit_error(rt, "nativedata was already freed");
+        return NULL;
+    }
+    return h->in.nativedata.data;
+}
 
 pit_values *pit_values_new(i64 capacity) {
     i64 cap = capacity / (i64) sizeof(pit_value);

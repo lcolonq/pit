@@ -206,6 +206,7 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args);
 
 /* working with native data */
 pit_value pit_nativedata_new(pit_runtime *rt, pit_value tag, void *d);
+void *pit_nativedata_get(pit_runtime *rt, pit_value tag, pit_value v);
 
 /* evaluation! */
 pit_value pit_expand_macros(pit_runtime *rt, pit_value top);

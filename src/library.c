@@ -336,27 +336,6 @@ struct bytestring {
     i64 len, cap;
     u8 *data;
 };
-static struct bytestring *bytestring_get(pit_runtime *rt, pit_value v) {
-    if (pit_value_sort(v) != PIT_VALUE_SORT_REF) {
-        pit_error(rt, "value was not a reference (to a bytestring)");
-        return NULL;
-    }
-    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, v));
-    if (!h) { pit_error(rt, "bad ref"); return NULL; }
-    if (h->hsort != PIT_VALUE_HEAVY_SORT_NATIVEDATA) {
-        pit_error(rt, "invalid use of value as bytestring nativedata");
-        return NULL;
-    }
-    if (!pit_eq(h->in.nativedata.tag, pit_intern_cstr(rt, "bs"))) {
-        pit_error(rt, "native value is not a bytestring");
-        return NULL;
-    }
-    if (!h->in.nativedata.data) {
-        pit_error(rt, "bytestring was already freed");
-        return NULL;
-    }
-    return h->in.nativedata.data;
-}
 static pit_value impl_bs_new(pit_runtime *rt, pit_value args) {
     (void) args;
     i64 cap = 256;
@@ -392,7 +371,7 @@ static pit_value impl_bs_delete(pit_runtime *rt, pit_value args) {
 static pit_value impl_bs_grow(pit_runtime *rt, pit_value args) {
     pit_value vsz = pit_car(rt, args);
     pit_value v = pit_car(rt, pit_cdr(rt, args));
-    struct bytestring *bs = bytestring_get(rt, v);
+    struct bytestring *bs = pit_nativedata_get(rt, pit_intern_cstr(rt, "bs"), v);
     if (!bs) return PIT_NIL;
     i64 sz = pit_as_integer(rt, vsz);
     if (sz > bs->len) {
@@ -411,7 +390,7 @@ static pit_value impl_bs_spit(pit_runtime *rt, pit_value args) {
     if (len < 0) { pit_error(rt, "path was not a string"); return PIT_NIL; }
     pathbuf[len] = 0;
     pit_value v = pit_car(rt, pit_cdr(rt, args));
-    struct bytestring *bs = bytestring_get(rt, v);
+    struct bytestring *bs = pit_nativedata_get(rt, pit_intern_cstr(rt, "bs"), v);
     if (!bs) return PIT_NIL;
     FILE *f = fopen(pathbuf, "w+");
     if (!f) { pit_error(rt, "failed to open file: %s", pathbuf); return PIT_NIL; }
@@ -427,7 +406,7 @@ static pit_value impl_bs_write8(pit_runtime *rt, pit_value args) {
     pit_value v = pit_car(rt, args);
     pit_value vidx = pit_car(rt, pit_cdr(rt, args));
     pit_value vx = pit_car(rt, pit_cdr(rt, pit_cdr(rt, args)));
-    struct bytestring *bs = bytestring_get(rt, v);
+    struct bytestring *bs = pit_nativedata_get(rt, pit_intern_cstr(rt, "bs"), v);
     if (!bs) return PIT_NIL;
     i64 idx = pit_as_integer(rt, vidx);
     u8 x = (u8) pit_as_integer(rt, vx);

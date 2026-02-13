@@ -12,6 +12,7 @@ int main(int argc, char **argv) {
     pit_install_library_essential(rt);
     pit_install_library_io(rt);
     pit_install_library_plist(rt);
+    pit_install_library_alist(rt);
     pit_install_library_bytestring(rt);
     if (argc < 2) { /* run repl */
         char buf[1024] = {0};
@@ -49,11 +50,11 @@ int main(int argc, char **argv) {
         }
         pit_parser_from_lexer(&parse, &lex);
         while (p = pit_parse(rt, &parse, &eof), !eof) {
+            if (pit_runtime_print_error(rt)) exit(1);
             pit_eval(rt, p);
-            if (pit_runtime_print_error(rt)) {
-                exit(1);
-            }
+            if (pit_runtime_print_error(rt)) exit(1);
         }
+        if (pit_runtime_print_error(rt)) exit(1);
     }
     return 0;
 }

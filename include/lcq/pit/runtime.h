@@ -22,7 +22,7 @@ void *pit_arena_alloc_bulk(pit_arena *a, i64 num);
 
 /* nil is always the symbol with index 0 */
 #define PIT_NIL 0xfff4000000000000 /* 0b1111111111110100000000000000000000000000000000000000000000000000 */
-#define PIT_T   0xfff4000000000001 /* 0b1111111111110100000000000000000000000000000000000000000000000001 */
+#define PIT_T   (PIT_NIL+sizeof(pit_symtab_entry))
 
 enum pit_value_sort {
     PIT_VALUE_SORT_DOUBLE  = 0, /* 0b00 - double */
@@ -95,6 +95,7 @@ void pit_runtime_eval_program_push_apply(struct pit_runtime *rt, pit_runtime_eva
 typedef struct pit_runtime {
     /* interpreter state */
     pit_arena *values; /* all heavy values - effectively an array of pit_value_heavy - MUTABLE! */
+    pit_arena *arrays; /* all arrays - MUTABLE! */
     pit_arena *bytes; /* all bytestrings (including symbol names) - immutable */
     pit_arena *symtab; i64 symtab_len; /* all symbols - effectively an array of pit_symtab_entry - MUTABLE! */
     /* temporary/"scratch" memory */
@@ -105,7 +106,7 @@ typedef struct pit_runtime {
     pit_runtime_eval_program *program; /* intermediate stack-based program constructed during evaluation */
     /* bookkeeping */
     /* "frozen" values offsets: values before these offsets are immutable, and we can reset here later */
-    i64 frozen_values, frozen_bytes, frozen_symtab;
+    i64 frozen_values, frozen_arrays, frozen_bytes, frozen_symtab;
     pit_value error; /* error value - if this is non-nil, an error has occured! only tracks the first error */
     i64 source_line, source_column; /* for error reporting only; line and column of token start */
     i64 error_line, error_column; /* line and column of token start at time of error */
@@ -127,6 +128,7 @@ double pit_as_double(pit_runtime *rt, pit_value v);
 pit_value pit_double_new(pit_runtime *rt, double d);
 i64 pit_as_integer(pit_runtime *rt, pit_value v);
 pit_value pit_integer_new(pit_runtime *rt, i64 i);
+pit_value pit_bool_new(pit_runtime *rt, bool i);
 pit_symbol pit_as_symbol(pit_runtime *rt, pit_value v);
 pit_value pit_symbol_new(pit_runtime *rt, pit_symbol s);
 pit_ref pit_as_ref(pit_runtime *rt, pit_value v);
@@ -163,6 +165,7 @@ pit_value pit_read_bytes(pit_runtime *rt, pit_value v);
 /* working with the symbol table */
 pit_value pit_intern(pit_runtime *rt, u8 *nm, i64 len);
 pit_value pit_intern_cstr(pit_runtime *rt, char *nm);
+pit_value pit_symbol_name(pit_runtime *rt, pit_value sym);
 bool pit_symbol_name_match(pit_runtime *rt, pit_value sym, u8 *buf, i64 len);
 bool pit_symbol_name_match_cstr(pit_runtime *rt, pit_value sym, char *s);
 pit_symtab_entry *pit_symtab_lookup(pit_runtime *rt, pit_value sym);
@@ -183,12 +186,20 @@ pit_value pit_unbind(pit_runtime *rt, pit_value sym);
 
 /* working with cells */
 pit_value pit_cell_new(pit_runtime *rt, pit_value v);
-pit_value pit_cell_get(pit_runtime *rt, pit_value cell);
-void pit_cell_set(pit_runtime *rt, pit_value cell, pit_value v);
+pit_value pit_cell_get(pit_runtime *rt, pit_value cell, pit_value sym);
+void pit_cell_set(pit_runtime *rt, pit_value cell, pit_value v, pit_value sym);
+
+/* working with arrays */
+pit_value pit_array_new(pit_runtime *rt, i64 len);
+pit_value pit_array_from_buf(pit_runtime *rt, pit_value *xs, i64 len);
+i64 pit_array_len(pit_runtime *rt, pit_value arr);
+pit_value pit_array_get(pit_runtime *rt, pit_value arr, i64 idx);
+pit_value pit_array_set(pit_runtime *rt, pit_value arr, i64 idx, pit_value v);
 
 /* working with cons cells */
 pit_value pit_cons(pit_runtime *rt, pit_value car, pit_value cdr);
 pit_value pit_list(pit_runtime *rt, i64 num, ...);
+i64 pit_list_len(pit_runtime *rt, pit_value xs);
 pit_value pit_car(pit_runtime *rt, pit_value v);
 pit_value pit_cdr(pit_runtime *rt, pit_value v);
 void pit_setcar(pit_runtime *rt, pit_value v, pit_value x);
@@ -196,6 +207,7 @@ void pit_setcdr(pit_runtime *rt, pit_value v, pit_value x);
 pit_value pit_append(pit_runtime *rt, pit_value xs, pit_value ys);
 pit_value pit_reverse(pit_runtime *rt, pit_value xs);
 pit_value pit_contains_eq(pit_runtime *rt, pit_value needle, pit_value haystack);
+pit_value pit_contains_equal(pit_runtime *rt, pit_value needle, pit_value haystack);
 pit_value pit_plist_get(pit_runtime *rt, pit_value k, pit_value vs);
 
 /* working with functions */

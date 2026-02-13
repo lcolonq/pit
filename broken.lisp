@@ -1,0 +1,5 @@
+;; (let ((foo (+ 1 1)))
+;;   (print! foo))
+((lambda (foo)
+   (print! foo))
+  (+ 1 1))

@@ -37,6 +37,18 @@ static void get_token_string(pit_parser *st, char *buf, i64 len) {
     buf[tlen] = 0;
 }
 
+static i64 digit_value(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    } else if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    } else if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    } else {
+        return 0;
+    }
+}
+
 void pit_parser_from_lexer(pit_parser *ret, pit_lexer *lex) {
     ret->lexer = lex;
     ret->cur.token = ret->next.token = PIT_LEX_TOKEN_ERROR;
@@ -76,7 +88,10 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
         while (!match(st, PIT_LEX_TOKEN_RPAREN)) {
             pit_value *cell = pit_arena_alloc_bulk(rt->scratch, sizeof(pit_value));
             *cell = pit_parse(rt, st, eof);
-            if (rt->error != PIT_NIL) return PIT_NIL; /* if we hit an error, stop!*/
+            if (rt->error != PIT_NIL || (eof != NULL && *eof)) {
+                pit_error(rt, "unterminated list");
+                return PIT_NIL; /* if we hit an error, stop!*/
+            }
         }
         for (i64 i = rt->scratch->next - (i64) sizeof(pit_value);
              i >= scratch_reset;
@@ -88,11 +103,45 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
         rt->scratch->next = scratch_reset;
         return ret;
     }
+    case PIT_LEX_TOKEN_LSQUARE: {
+        i64 scratch_reset = rt->scratch->next;
+        i64 len = 0;
+        while (!match(st, PIT_LEX_TOKEN_RSQUARE)) {
+            pit_value *cell = pit_arena_alloc_bulk(rt->scratch, sizeof(pit_value));
+            *cell = pit_parse(rt, st, eof);
+            len += 1;
+            if (rt->error != PIT_NIL || (eof != NULL && *eof)) {
+                pit_error(rt, "unterminated array literal");
+                return PIT_NIL;
+            }
+        }
+        rt->scratch->next = scratch_reset;
+        return pit_array_from_buf(rt, pit_arena_idx(rt->scratch, (i32) scratch_reset), len);
+    }
     case PIT_LEX_TOKEN_QUOTE:
         return pit_list(rt, 2, pit_intern_cstr(rt, "quote"), pit_parse(rt, st, eof));
-    case PIT_LEX_TOKEN_INTEGER_LITERAL:
-        get_token_string(st, buf, sizeof(buf));
-        return pit_integer_new(rt, atoi(buf));
+    case PIT_LEX_TOKEN_INTEGER_LITERAL: {
+        i64 idx = st->cur.start;
+        i64 base = 10;
+        i64 total = 0;
+        char c = st->lexer->input[idx++];
+        if (c == '0' && idx + 1 < st->cur.end) {
+            switch (st->lexer->input[idx++]) {
+            case 'b': base = 2; break;
+            case 'o': base = 8; break;
+            case 'x': base = 16; break;
+            default: pit_error(rt, "unknown integer base"); return PIT_NIL;
+            }
+        } else { total = digit_value(c); }
+        while (idx < st->cur.end) {
+            total *= base;
+            total += digit_value(st->lexer->input[idx++]);
+            if (total > 0x1ffffffffffff) {
+                pit_error(rt, "integer literal too large"); return PIT_NIL;
+            }
+        }
+        return pit_integer_new(rt, total);
+    }
     case PIT_LEX_TOKEN_STRING_LITERAL: {
         get_token_string(st, buf, sizeof(buf));
         i64 len = (i64) strlen(buf);

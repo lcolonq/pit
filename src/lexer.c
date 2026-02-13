@@ -11,6 +11,8 @@ const char *PIT_LEX_TOKEN_NAMES[PIT_LEX_TOKEN__SENTINEL] = {
     /* [PIT_LEX_TOKEN_EOF] = */ "eof",
     /* [PIT_LEX_TOKEN_LPAREN] = */ "lparen",
     /* [PIT_LEX_TOKEN_RPAREN] = */ "rparen",
+    /* [PIT_LEX_TOKEN_LSQUARE] = */ "lsquare",
+    /* [PIT_LEX_TOKEN_RSQUARE] = */ "rsquare",
     /* [PIT_LEX_TOKEN_DOT] = */ "dot",
     /* [PIT_LEX_TOKEN_QUOTE] = */ "quote",
     /* [PIT_LEX_TOKEN_INTEGER_LITERAL] = */ "integer_literal",
@@ -29,6 +31,11 @@ static bool is_more_input(pit_lexer *st) {
 static int is_symchar(int c) {
     return c != '(' && c != ')' && c != '.' && c != '\'' && c != '"' && isprint(c) && !isspace(c);
 }
+
+static int is_hexdigit(int c) {
+    return isdigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
 
 static char peek(pit_lexer *st) {
     if (is_more_input(st)) return st->input[st->end];
@@ -104,6 +111,8 @@ restart:
     case ';': while (is_more_input(st) && advance(st) != '\n'); goto restart;
     case '(': return PIT_LEX_TOKEN_LPAREN;
     case ')': return PIT_LEX_TOKEN_RPAREN;
+    case '[': return PIT_LEX_TOKEN_LSQUARE;
+    case ']': return PIT_LEX_TOKEN_RSQUARE;
     case '.': return PIT_LEX_TOKEN_DOT;
     case '\'': return PIT_LEX_TOKEN_QUOTE;
     case '"':
@@ -119,10 +128,14 @@ restart:
     default:
         if (isspace(c)) goto restart;
         if (isdigit(c)) {
-            while (match(st, isdigit)) {}
+            if (c == '0') {
+                int next = peek(st);
+                if (next != 'x' && next != 'o' && next != 'b') return PIT_LEX_TOKEN_INTEGER_LITERAL;
+                advance(st); /* skip base specifier */
+            }
+            while (match(st, is_hexdigit)) {}
             return PIT_LEX_TOKEN_INTEGER_LITERAL;
-        }
-        else {
+        } else {
             while (match(st, is_symchar)) {}
             return PIT_LEX_TOKEN_SYMBOL;
         }

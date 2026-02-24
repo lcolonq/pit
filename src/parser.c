@@ -86,8 +86,18 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
         i64 scratch_reset = rt->scratch->next;
         pit_value ret = PIT_NIL;
         while (!match(st, PIT_LEX_TOKEN_RPAREN)) {
-            pit_value *cell = pit_arena_alloc_bulk(rt->scratch, sizeof(pit_value));
-            *cell = pit_parse(rt, st, eof);
+            if (match(st, PIT_LEX_TOKEN_DOT)) {
+                ret = pit_parse(rt, st, eof);
+                if (match(st, PIT_LEX_TOKEN_RPAREN)) {
+                    break;
+                } else {
+                    pit_error(rt, "unterminated dotted list");
+                    return PIT_NIL;
+                }
+            } else {
+                pit_value *cell = pit_arena_alloc_bulk(rt->scratch, sizeof(pit_value));
+                *cell = pit_parse(rt, st, eof);
+            }
             if (rt->error != PIT_NIL || (eof != NULL && *eof)) {
                 pit_error(rt, "unterminated list");
                 return PIT_NIL; /* if we hit an error, stop!*/

@@ -63,10 +63,8 @@
 (defun! x86/integer-fits-in-bits? (bits x)
   "Determine if X fits in BITS."
   (if (integer? x)
-    (let ((bound (bitwise/lshift 1 bits)))
-      (or
-        (and (>= x 0) (< x bound))
-        (and (< x 0) (<= (abs x) (/ bound 2)))))))
+    (let ((leftover (bitwise/rshift x bits)))
+      (eq? leftover 0))))
 (defun! x86/operand-immediate-fits? (sz x)
   "Determine if immediate operand X fits in SZ."
   (let
@@ -197,14 +195,14 @@
             (or modrm-rm 0))))
       (if disp
         (cond
-          ((= (car disp) 1) (list (cdr disp)))
-          ((= (car disp) 4) (x86/split32le (cdr disp)))
+          ((eq? (car disp) 1) (list (cdr disp)))
+          ((eq? (car disp) 4) (x86/split32le (cdr disp)))
           (t (error! "malformed displacement for instruction"))))
       (if imm
         (cond
-          ((= (car imm) 1) (list (cdr imm)))
-          ((= (car imm) 2) (x86/split16le (cdr imm)))
-          ((= (car imm) 4) (x86/split32le (cdr imm)))
+          ((eq? (car imm) 1) (list (cdr imm)))
+          ((eq? (car imm) 2) (x86/split16le (cdr imm)))
+          ((eq? (car imm) 4) (x86/split32le (cdr imm)))
           (t (error! "malformed immediate for instruction")))))))
 
 (defun! x86/instruction-update-sizes (ins ops default-size)
@@ -232,12 +230,12 @@ The effective operand size is ESZ."
       (let ((loc (bytes/range 0 1 pat)))
         (cond
           ((equal? loc "I")
-            (let ((immsz (min esz 4)))
+            (let ((immsz (if (>= esz 4) 4 esz)))
               (if (not (x86/integer-fits-in-bits? (* 8 immsz) op))
                 (error! "Immediate too large" op))
               (x86/ins/set-imm! ins (cons immsz op))))
           ((equal? loc "J")
-            (let ((immsz (if (= esz 1) 1 4)))
+            (let ((immsz (if (eq? esz 1) 1 4)))
               (if (not (x86/integer-fits-in-bits? (* 8 immsz) op))
                 (error! "jump displacement too large"))
               (x86/ins/set-disp! ins (cons immsz op))))
@@ -249,8 +247,8 @@ The effective operand size is ESZ."
             (x86/ins/set-modrm-rm! ins
               (or (x86/register? op) (error "Invalid register: %s" op))))
           ((or (equal? loc "M") (and (equal? loc "E") (x86/operand-memory-location? op)))
-            (let ( (base (x86/memory-location-base op))
-                   (off (x86/memory-location-off op)))
+            (let ( (base (x86/memory-operand-base op))
+                   (off (x86/memory-operand-off op)))
               (cond
                 ((eq? base 'eip)
                   (x86/ins/set-modrm-rm! ins 0b101)
@@ -283,13 +281,9 @@ The effective operand size is ESZ."
   "Return an instruction handler for OPCODE.
 The instruction handler will run POSTHOOK on the instruction at the end.
 DEFAULT-SIZE is the default operand size."
-  (print! opcode)
   (let ( (posthook (plist/get :posthook kwargs))
          (default-size (plist/get :default-size kwargs)))
     (lambda (pats ops)
-      (print! opcode)
-      ;; (print! default-size)
-      ;; (print! posthook)
       (let ((ret (x86/ins/new :opcode opcode)))
         (let ((esz
                 (or (x86/instruction-update-sizes ret ops default-size)
@@ -302,6 +296,141 @@ DEFAULT-SIZE is the default operand size."
         (if posthook
           (funcall posthook ret ops))
         ret))))
+
+(defun! x86/instruction-handler-jcc (opcode immsz)
+  "Return an instruction handler for a Jcc instruction at OPCODE.
+IMMSZ is the size of the displacement from RIP."
+  (lambda (_pats ops)
+    (let ((ret (x86/ins/new :opcode opcode)))
+      (x86/ins/set-disp! ret (cons immsz (car ops)))
+      ret)))
+
+(defun! x86/generate-handlers-arith (opbase group1reg)
+  "Return handlers for an arithmetic mnemonic starting at OPBASE.
+The REG value in ModR/M is indicated by GROUP1REG."
+  (list
+    (cons '("Eb" "Gb") (x86/default-instruction-handler (+ opbase 0)))
+    (cons '("Ev" "Gv") (x86/default-instruction-handler (+ opbase 1)))
+    (cons '("Gb" "Eb") (x86/default-instruction-handler (+ opbase 2)))
+    (cons '("Gv" "Ev") (x86/default-instruction-handler (+ opbase 3)))
+    (cons '(al "Ib") (x86/default-instruction-handler (+ opbase 4)))
+    (cons '((ax eax rax) "Iz") (x86/default-instruction-handler (+ opbase 5)))
+    (cons '("Eb" "Ib")
+      (x86/default-instruction-handler 0x80
+        :posthook (lambda (ins _) (x86/ins/set-modrm-reg! ins group1reg))))
+    (cons '("Ev" "Iz")
+      (x86/default-instruction-handler 0x81
+        :posthook (lambda (ins _) (x86/ins/set-modrm-reg! ins group1reg))))
+    (cons '("Ev" "Ib")
+      (x86/default-instruction-handler 0x83
+        :posthook (lambda (ins _) (setf (x86/ins-modrm-reg ins) group1reg))))))
+
+(setq! x86/registers-+reg-base
+  '( (+rb . (al cl dl bl ah ch dh bh))
+     (+rw . (ax cx dx bx sp bp si di))
+     (+rd . (eax ecx edx ebx esp ebp esi edi))
+     (+rq . (rax rcx rdx rbx rsp rbp rsi rdi))))
+(setq! x86/registers-+reg-extended
+  '( (+rw . (r8b r9b r10b r11b r12b r13b r14b r15b))
+     (+rw . (r8w r9w r10w r11w r12w r13w r14w r15w))
+     (+rd . (r8d r9d r10d r11d r12d r13d r14d r15d))
+     (+rq . (r8 r9 r10 r11 r12 r13 r14 r15))))
+(defun! x86/generate-handlers-opcode-+reg (opbase extraops addends & args)
+  "Generate handlers for a family of opcodes that uses the +reg encoding.
+OPBASE is the base opcode.
+EXTRAOPS are additional operands after the register operand.
+ADDENDS is a list of symbols like +rw, +rq etc. that denote allowed registers.
+ARGS are passed verbatim to `u/x86/default-instruction-handler."
+  (list/map
+    (lambda (it)
+      (let ( (abase (list/map (lambda (a) (list/nth it (alist/get a x86/registers-+reg-base))) addends))
+             (aext (list/map (lambda (a) (list/nth it (alist/get a x86/registers-+reg-extended))) addends)))
+        (cons
+          (cons (list/append abase aext) extraops)
+          (apply 'x86/default-instruction-handler (cons (+ opbase it) args)))))
+    (list/iota 8)))
+
+(setq!
+  x86/mnemonic-table
+  (list
+    (cons 'add (x86/generate-handlers-arith 0x00 0))
+    (cons 'or  (x86/generate-handlers-arith 0x08 1))
+    (cons 'adc (x86/generate-handlers-arith 0x10 2))
+    (cons 'sbb (x86/generate-handlers-arith 0x18 3))
+    (cons 'and (x86/generate-handlers-arith 0x20 4))
+    (cons 'sub (x86/generate-handlers-arith 0x28 5))
+    (cons 'xor (x86/generate-handlers-arith 0x30 6))
+    (cons 'cmp (x86/generate-handlers-arith 0x38 7))
+    (cons 'push
+      (x86/generate-handlers-opcode-+reg 0x50 '() '(+rw +rq) 
+        :default-size 8
+        :posthook (lambda (ins ops) (x86/ins/set-rex-b! ins (x86/register-extended? (car ops))))))
+    (cons 'pop
+      (x86/generate-handlers-opcode-+reg 0x58 '() '(+rw +rq)
+        :default-size 8
+        :posthook (lambda (ins ops) (x86/ins/set-rex-b! ins (x86/register-extended? (car ops))))))
+    (list 'jo
+      (cons '("Jb") (x86/instruction-handler-jcc 0x70 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x80) 4)))
+    (list 'jno
+      (cons '("Jb") (x86/instruction-handler-jcc 0x71 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x81) 4)))
+    (list 'jb
+      (cons '("Jb") (x86/instruction-handler-jcc 0x72 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x82) 4)))
+    (list 'jnb
+      (cons '("Jb") (x86/instruction-handler-jcc 0x73 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x83) 4)))
+    (list 'jz
+      (cons '("Jb") (x86/instruction-handler-jcc 0x74 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x84) 4)))
+    (list 'jnz
+      (cons '("Jb") (x86/instruction-handler-jcc 0x75 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x85) 4)))
+    (list 'jbe
+      (cons '("Jb") (x86/instruction-handler-jcc 0x76 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x86) 4)))
+    (list 'jnbe
+      (cons '("Jb") (x86/instruction-handler-jcc 0x77 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x87) 4)))
+    (list 'js
+      (cons '("Jb") (x86/instruction-handler-jcc 0x78 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x88) 4)))
+    (list 'jns
+      (cons '("Jb") (x86/instruction-handler-jcc 0x79 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x89) 4)))
+    (list 'jp
+      (cons '("Jb") (x86/instruction-handler-jcc 0x7a 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x8a) 4)))
+    (list 'jnp
+      (cons '("Jb") (x86/instruction-handler-jcc 0x7b 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x8b) 4)))
+    (list 'jl
+      (cons '("Jb") (x86/instruction-handler-jcc 0x7c 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x8c) 4)))
+    (list 'jnl
+      (cons '("Jb") (x86/instruction-handler-jcc 0x7d 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x8d) 4)))
+    (list 'jle
+      (cons '("Jb") (x86/instruction-handler-jcc 0x7e 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x8e) 4)))
+    (list 'jnle
+      (cons '("Jb") (x86/instruction-handler-jcc 0x7f 1))
+      (cons '("Jz") (x86/instruction-handler-jcc '(0x0f 0x8f) 4)))
+    (cons 'mov
+      (x86/generate-handlers-opcode-+reg 0xb0 '("Ib") '(+rb)
+        :posthook (lambda (ins ops) (x86/ins/set-rex-b! ins (x86/register-extended? (car ops))))))
+    (cons 'mov
+      (x86/generate-handlers-opcode-+reg 0xb8 '("Iv") '(+rw +rd +rq)
+        :posthook (lambda (ins ops) (x86/ins/set-rex-b! ins (x86/register-extended? (car ops))))))
+    (list 'jmp
+      (cons '("Ev")
+        (x86/default-instruction-handler 0xff
+          :default-size 8
+          :posthook (lambda (ins _) (setf (u/x86/ins-modrm-reg ins) 4)))))
+    (list 'syscall
+      (cons '() (lambda (_ _) (x86/ins/new :opcode '(0x0f 0x05)))))
+    ))
 
 (defun! x86/asm (op)
   "Assemble OP to an instruction."
@@ -317,14 +446,6 @@ DEFAULT-SIZE is the default operand size."
           (funcall (cdr v) (car v) operands)
           (error! "could not identify instruction"))))))
 
-(setq!
-  x86/mnemonic-table
-  (list
-    (cons 'add
-      (list
-        (cons (list "Eb" "Gb") (x86/default-instruction-handler 0))
-        (cons (list "Ev" "Gv") (x86/default-instruction-handler 1))))))
-
-(setq! test-ins (x86/asm '(add al bl)))
+(setq! test-ins (x86/asm '(syscall)))
 (print! test-ins)
 (print! (x86/ins-bytes test-ins))

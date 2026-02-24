@@ -255,6 +255,11 @@ static pit_value impl_funcall(pit_runtime *rt, pit_value args) {
     pit_value f = pit_car(rt, args);
     return pit_apply(rt, f, pit_cdr(rt, args));
 }
+static pit_value impl_apply(pit_runtime *rt, pit_value args) {
+    pit_value f = pit_car(rt, args);
+    pit_value xs = pit_car(rt, pit_cdr(rt, args));
+    return pit_apply(rt, f, xs);
+}
 static pit_value impl_error(pit_runtime *rt, pit_value args) {
     rt->error = PIT_T;
     rt->error = pit_car(rt, args);
@@ -322,6 +327,22 @@ static pit_value impl_setcdr(pit_runtime *rt, pit_value args) {
 static pit_value impl_list(pit_runtime *rt, pit_value args) {
     (void) rt;
     return args;
+}
+static pit_value impl_list_nth(pit_runtime *rt, pit_value args) {
+    i64 n = pit_as_integer(rt, pit_car(rt, args));
+    pit_value xs = pit_car(rt, pit_cdr(rt, args));
+    while (xs != PIT_NIL && n-- > 0) {
+        xs = pit_cdr(rt, xs);
+    }
+    return pit_car(rt, xs);
+}
+static pit_value impl_list_iota(pit_runtime *rt, pit_value args) {
+    i64 n = pit_as_integer(rt, pit_car(rt, args));
+    pit_value ret = PIT_NIL;
+    while (n > 0) {
+        ret = pit_cons(rt, pit_integer_new(rt, --n), ret);
+    }
+    return ret;
 }
 static pit_value impl_list_len(pit_runtime *rt, pit_value args) {
     pit_value arr = pit_car(rt, args);
@@ -685,7 +706,9 @@ static pit_value impl_bitwise_lshift(pit_runtime *rt, pit_value args) {
 static pit_value impl_bitwise_rshift(pit_runtime *rt, pit_value args) {
     i64 val = pit_as_integer(rt, pit_car(rt, args));
     i64 shift = pit_as_integer(rt, pit_car(rt, pit_cdr(rt, args)));
-    return pit_integer_new(rt, val >> shift);
+    if (shift >= 64) val = 0;
+    else val >>= shift;
+    return pit_integer_new(rt, val);
 }
 void pit_install_library_essential(pit_runtime *rt) {
     /* special forms */
@@ -722,6 +745,7 @@ void pit_install_library_essential(pit_runtime *rt) {
     pit_fset(rt, pit_intern_cstr(rt, "fset!"), pit_nativefunc_new(rt, impl_fset));
     pit_fset(rt, pit_intern_cstr(rt, "symbol-is-macro!"), pit_nativefunc_new(rt, impl_symbol_is_macro));
     pit_fset(rt, pit_intern_cstr(rt, "funcall"), pit_nativefunc_new(rt, impl_funcall));
+    pit_fset(rt, pit_intern_cstr(rt, "apply"), pit_nativefunc_new(rt, impl_apply));
     /* cons cells */
     pit_fset(rt, pit_intern_cstr(rt, "cons"), pit_nativefunc_new(rt, impl_cons));
     pit_fset(rt, pit_intern_cstr(rt, "car"), pit_nativefunc_new(rt, impl_car));
@@ -730,6 +754,8 @@ void pit_install_library_essential(pit_runtime *rt) {
     pit_fset(rt, pit_intern_cstr(rt, "setcdr!"), pit_nativefunc_new(rt, impl_setcdr));
     /* cons lists*/
     pit_fset(rt, pit_intern_cstr(rt, "list"), pit_nativefunc_new(rt, impl_list));
+    pit_fset(rt, pit_intern_cstr(rt, "list/nth"), pit_nativefunc_new(rt, impl_list_nth));
+    pit_fset(rt, pit_intern_cstr(rt, "list/iota"), pit_nativefunc_new(rt, impl_list_iota));
     pit_fset(rt, pit_intern_cstr(rt, "list/len"), pit_nativefunc_new(rt, impl_list_len));
     pit_fset(rt, pit_intern_cstr(rt, "list/reverse"), pit_nativefunc_new(rt, impl_list_reverse));
     pit_fset(rt, pit_intern_cstr(rt, "list/uniq"), pit_nativefunc_new(rt, impl_list_uniq));

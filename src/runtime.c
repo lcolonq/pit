@@ -24,7 +24,9 @@ i32 pit_arena_next_idx(pit_arena *a) {
 }
 i32 pit_arena_alloc_idx(pit_arena *a) {
     i32 byte_idx = pit_arena_next_idx(a);
-    if (byte_idx >= a->capacity) { return -1; }
+    if (byte_idx >= a->capacity) {
+        return -1;
+    }
     a->next += 1;
     return byte_idx;
 }
@@ -36,7 +38,9 @@ i32 pit_arena_alloc_bulk_idx(pit_arena *a, i64 num) {
     return byte_idx;
 }
 void *pit_arena_idx(pit_arena *a, i32 idx) {
-    if (idx < 0 || idx >= a->capacity) return NULL;
+    if (idx < 0 || idx >= a->capacity) {
+        return NULL;
+    }
     return &a->data[idx];
 }
 void *pit_arena_alloc(pit_arena *a) {
@@ -68,16 +72,16 @@ u64 pit_value_data(pit_value v) {
 
 pit_runtime *pit_runtime_new() {
     pit_runtime *ret = malloc(sizeof(*ret));
-    ret->values = pit_arena_new(1024 * 1024, sizeof(pit_value_heavy));
+    ret->values = pit_arena_new(64 * 1024 * 1024, sizeof(pit_value_heavy));
     ret->arrays = pit_arena_new(1024 * 1024, sizeof(pit_value));
     ret->bytes = pit_arena_new(1024 * 1024, sizeof(u8));
     ret->symtab = pit_arena_new(1024 * 1024, sizeof(pit_symtab_entry));
     ret->symtab_len = 0;
     ret->scratch = pit_arena_new(1024 * 1024, sizeof(u8));
-    ret->expr_stack = pit_values_new(1024);
-    ret->result_stack = pit_values_new(1024);
+    ret->expr_stack = pit_values_new(64 * 1024);
+    ret->result_stack = pit_values_new(64 * 1024);
     ret->program = pit_runtime_eval_program_new(64 * 1024);
-    ret->saved_bindings = pit_values_new(1024);
+    ret->saved_bindings = pit_values_new(64 * 1024);
     ret->frozen_values = 0;
     ret->frozen_arrays = 0;
     ret->frozen_bytes = 0;
@@ -227,6 +231,7 @@ void pit_error(pit_runtime *rt, const char *format, ...) {
         va_end(vargs);
         rt->error = PIT_T; /* we set the error now to prevent infinite recursion */
         rt->error = pit_bytes_new_cstr(rt, buf); /* in case this errs also */
+        if (rt->error == PIT_NIL) rt->error = PIT_T;
         rt->error_line = rt->source_line;
         rt->error_column = rt->source_column;
     }
@@ -302,6 +307,10 @@ pit_value pit_ref_new(pit_runtime *rt, pit_ref r) {
 
 pit_value pit_heavy_new(pit_runtime *rt) {
     i32 idx = pit_arena_alloc_idx(rt->values);
+    if (idx < 0) {
+        pit_error(rt, "failed to allocate space for heavy value");
+        return PIT_NIL;
+    }
     return pit_ref_new(rt, idx);
 }
 
@@ -557,7 +566,6 @@ void pit_set(pit_runtime *rt, pit_value sym, pit_value v) {
     if (pit_value_sort(ent->value) != PIT_VALUE_SORT_REF) {
         ent->value = pit_cell_new(rt, PIT_NIL);
     }
-    fprintf(stderr, "setting "); pit_trace(rt, sym); fprintf(stderr, " to "); pit_trace(rt, v);
     pit_cell_set(rt, ent->value, v, sym);
 }
 pit_value pit_fget(pit_runtime *rt, pit_value sym) {
@@ -606,7 +614,6 @@ void pit_bind(pit_runtime *rt, pit_value sym, pit_value cell) {
     pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
     if (!ent) { pit_error(rt, "bad symbol"); return; }
     pit_values_push(rt, rt->saved_bindings, ent->value);
-    fprintf(stderr, "binding "); pit_trace(rt, sym); fprintf(stderr, " to "); pit_trace(rt, cell);
     ent->value = cell;
 }
 pit_value pit_unbind(pit_runtime *rt, pit_value sym) {
@@ -817,28 +824,35 @@ pit_value pit_plist_get(pit_runtime *rt, pit_value k, pit_value vs) {
     return PIT_NIL;
 }
 
-pit_value pit_free_vars(pit_runtime *rt, pit_value bound, pit_value body) {
+pit_value pit_free_vars(pit_runtime *rt, pit_value initial_bound, pit_value body) {
     i64 expr_stack_reset = rt->expr_stack->top;
     pit_value ret = PIT_NIL;
-    pit_values_push(rt, rt->expr_stack, body);
+    pit_values_push(rt, rt->expr_stack, pit_cons(rt, initial_bound, body));
     while (rt->expr_stack->top > expr_stack_reset) {
-        pit_value cur = pit_values_pop(rt, rt->expr_stack);
+        pit_value boundscur = pit_values_pop(rt, rt->expr_stack);
+        pit_value bound = pit_car(rt, boundscur);
+        pit_value cur = pit_cdr(rt, boundscur);
         if (pit_is_cons(rt, cur)) {
             pit_value fsym = pit_car(rt, cur);
             bool is_symbol = pit_is_symbol(rt, fsym);
             pit_value fargs = pit_cdr(rt, cur);
             if (is_symbol && pit_symbol_name_match_cstr(rt, fsym, "lambda")) {
-                bound = pit_append(rt, pit_car(rt, fargs), bound);
+                pit_value new_bound = pit_append(rt, pit_car(rt, fargs), bound);
+                fargs = pit_cdr(rt, fargs);
+                while (fargs != PIT_NIL) {
+                    pit_values_push(rt, rt->expr_stack, pit_cons(rt, new_bound, pit_car(rt, fargs)));
+                    fargs = pit_cdr(rt, fargs);
+                }
             } else if (is_symbol && pit_symbol_name_match_cstr(rt, fsym, "quote")) {
                 /* don't look inside quote!
                    if we add other special forms, make sure to consider them here if necessary! */
             } else {
                 while (fargs != PIT_NIL) {
-                    pit_values_push(rt, rt->expr_stack, pit_car(rt, fargs));
+                    pit_values_push(rt, rt->expr_stack, pit_cons(rt, bound, pit_car(rt, fargs)));
                     fargs = pit_cdr(rt, fargs);
                 }
                 if (!is_symbol) {
-                    pit_values_push(rt, rt->expr_stack, fsym);
+                    pit_values_push(rt, rt->expr_stack, pit_cons(rt, bound, fsym));
                 }
             }
         } else if (pit_is_symbol(rt, cur)) {
@@ -873,12 +887,10 @@ pit_value pit_lambda(pit_runtime *rt, pit_value args, pit_value body) {
             pit_value next_nm = pit_car(rt, pit_cdr(rt, args));
             if (next_nm == PIT_NIL) { pit_error(rt, "invalid & in lambda list"); return PIT_NIL; }
             arg_rest_nm = next_nm;
-            pit_value ent = pit_cons(rt, next_nm, pit_cell_new(rt, PIT_NIL));
-            arg_cells = pit_cons(rt, ent, arg_cells);
+            arg_cells = pit_cons(rt, next_nm, arg_cells);
             break;
         } else {
-            pit_value ent = pit_cons(rt, nm, pit_cell_new(rt, PIT_NIL));
-            arg_cells = pit_cons(rt, ent, arg_cells);
+            arg_cells = pit_cons(rt, nm, arg_cells);
             args = pit_cdr(rt, args);
         }
     }
@@ -898,6 +910,7 @@ pit_value pit_nativefunc_new(pit_runtime *rt, pit_nativefunc f) {
     return ret;
 }
 pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
+    char buf[256] = {0};
     if (pit_is_symbol(rt, f)) {
         f = pit_fget(rt, f);
     }
@@ -921,9 +934,8 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
             }
             pit_value anames = h->in.func.args;
             while (anames != PIT_NIL) { /* bind all argument names to their values */
-                pit_value aform = pit_car(rt, anames);
-                pit_value nm = pit_car(rt, aform);
-                pit_value cell = pit_cdr(rt, aform);
+                pit_value nm = pit_car(rt, anames);
+                pit_value cell = pit_cell_new(rt, PIT_NIL);
                 if (h->in.func.arg_rest_nm != PIT_NIL && pit_eq(nm, h->in.func.arg_rest_nm)) {
                     pit_cell_set(rt, cell, args, nm);
                     pit_bind(rt, nm, cell);
@@ -946,13 +958,18 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
             /* calling native functions is even simpler */
             return h->in.nativefunc(rt, args);
         } else {
-            pit_error(rt, "attempt to apply non-nativefunc ref");
+            i64 end = pit_dump(rt, buf, sizeof(buf) - 1, f, true);
+            buf[end] = 0;
+            pit_error(rt, "attempted to apply non-function ref: %s", buf);
             return PIT_NIL;
         }
     }
-    default:
-        pit_error(rt, "attempted to apply non-function value");
+    default: {
+        i64 end = pit_dump(rt, buf, sizeof(buf) - 1, f, true);
+        buf[end] = 0;
+        pit_error(rt, "attempted to apply non-function value: %s", buf);
         return PIT_NIL;
+    }
     }
 }
 

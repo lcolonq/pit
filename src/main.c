@@ -14,5 +14,9 @@ int main(int argc, char **argv) {
     pit_install_library_plist(rt);
     pit_install_library_alist(rt);
     pit_install_library_bytestring(rt);
-    PIT_DEFAULT_MAIN(rt);
+    if (argc < 2) {
+        pit_repl(rt);
+    } else {
+        pit_run_file(rt, argv[1]);
+    }
 }

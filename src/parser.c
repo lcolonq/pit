@@ -61,7 +61,6 @@ void pit_parser_from_lexer(pit_parser *ret, pit_lexer *lex) {
 
 /* parse a single expression */
 pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
-    char buf[256] = {0};
     if (rt == NULL || st == NULL) return PIT_NIL;
     pit_lex_token t = advance(st);
     rt->source_line = st->cur.line;
@@ -153,6 +152,7 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
         return pit_integer_new(rt, total);
     }
     case PIT_LEX_TOKEN_STRING_LITERAL: {
+        char buf[256] = {0};
         get_token_string(st, buf, sizeof(buf));
         i64 len = (i64) strlen(buf);
         i64 cur = 0;
@@ -163,9 +163,11 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
         }
         return pit_bytes_new(rt, (u8 *) buf, cur);
     }
-    case PIT_LEX_TOKEN_SYMBOL:
+    case PIT_LEX_TOKEN_SYMBOL: {
+        char buf[256] = {0};
         get_token_string(st, buf, sizeof(buf));
         return pit_intern_cstr(rt, buf);
+    }
     default:
         pit_error(rt, "unexpected token: %s", pit_lex_token_name(t));
         return PIT_NIL;

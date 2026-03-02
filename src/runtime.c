@@ -1310,11 +1310,11 @@ void pit_run_file(pit_runtime *rt, char *path) {
         if (pit_runtime_print_error(rt)) exit(1);
         pit_eval(rt, p);
         if (pit_runtime_print_error(rt)) exit(1);
-        // pit_collect_garbage(rt);
+        pit_collect_garbage(rt);
         if (pit_runtime_print_error(rt)) exit(1);
     }
     if (pit_runtime_print_error(rt)) exit(1);
-    fprintf(stderr, "value allocations: %ld\n", rt->values->next);
+    fprintf(stderr, "value allocs at exit: %ld\n", rt->values->next);
 }
 
 void pit_repl(pit_runtime *rt) {

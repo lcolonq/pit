@@ -805,6 +805,11 @@ void pit_install_library_essential(pit_runtime *rt) {
     pit_fset(rt, pit_intern_cstr(rt, "bitwise/rshift"), pit_nativefunc_new(rt, impl_bitwise_rshift));
 }
 
+static pit_value impl_diagnostics(pit_runtime *rt, pit_value args) {
+    (void) args;
+    fprintf(stderr, "value allocs: %ld\n", rt->values->next);
+    return PIT_NIL;
+}
 static pit_value impl_print(pit_runtime *rt, pit_value args) {
     pit_value x = pit_car(rt, args);
     char buf[1024] = {0};
@@ -844,6 +849,8 @@ static pit_value impl_load(pit_runtime *rt, pit_value args) {
     return ret;
 }
 void pit_install_library_io(pit_runtime *rt) {
+    /* diagnostics */
+    pit_fset(rt, pit_intern_cstr(rt, "diagnostics!"), pit_nativefunc_new(rt, impl_diagnostics));
     /* stream IO */
     pit_fset(rt, pit_intern_cstr(rt, "print!"), pit_nativefunc_new(rt, impl_print));
     pit_fset(rt, pit_intern_cstr(rt, "princ!"), pit_nativefunc_new(rt, impl_princ));

@@ -82,22 +82,20 @@ void pit_lex_bytes(pit_lexer *ret, char *buf, i64 len) {
     ret->column = ret->start_column = 0;
     ret->error = NULL;
 }
-void pit_lex_file(pit_lexer *ret, char *path) {
+i64 pit_lex_file(pit_lexer *ret, char *path) {
     FILE *f = fopen(path, "r");
-    if (f == NULL) {
-        pit_panic("failed to open file for lexing: %s", path);
-        return;
-    }
+    if (f == NULL) { return -1; }
     fseek(f, 0, SEEK_END);
     i64 len = ftell(f);
     fseek(f, 0, SEEK_SET);
-    char *buf = calloc((size_t) ret->len, sizeof(char));
-    if ((size_t) ret->len != fread(ret->input, sizeof(char), (size_t) ret->len, f)) {
-        pit_panic("failed to read file for lexing: %s", path);
-        return;
+    char *buf = calloc((size_t) len, sizeof(char));
+    if ((size_t) len != fread(buf, sizeof(char), (size_t) len, f)) {
+        fclose(f);
+        return -1;
     }
     fclose(f);
     pit_lex_bytes(ret, buf, len);
+    return 0;
 }
 
 pit_lex_token pit_lex_next(pit_lexer *st) {

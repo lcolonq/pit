@@ -29,7 +29,7 @@ typedef struct {
 
 void pit_lex_cstr(pit_lexer *ret, char *buf);
 void pit_lex_bytes(pit_lexer *ret, char *buf, i64 len);
-void pit_lex_file(pit_lexer *ret, char *path);
+i64 pit_lex_file(pit_lexer *ret, char *path);
 pit_lex_token pit_lex_next(pit_lexer *st);
 const char *pit_lex_token_name(pit_lex_token t);
 

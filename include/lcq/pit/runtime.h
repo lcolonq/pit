@@ -7,18 +7,6 @@
 
 struct pit_runtime;
 
-/* arenas */
-typedef struct {
-    i64 elem_size, capacity, next;
-    u8 data[];
-} pit_arena;
-pit_arena *pit_arena_new(i64 capacity, i64 elem_size);
-i64 pit_arena_alloc_idx(pit_arena *a);
-i64 pit_arena_alloc_bulk_idx(pit_arena *a, i64 num);
-void *pit_arena_idx(pit_arena *a, i64 idx);
-void *pit_arena_alloc(pit_arena *a);
-void *pit_arena_alloc_bulk(pit_arena *a, i64 num);
-
 /* nil is always the symbol with index 0 */
 #define PIT_NIL 0xfff4000000000000 /* 0b1111111111110100000000000000000000000000000000000000000000000000 */
 #define PIT_T   (PIT_NIL+sizeof(pit_symtab_entry))
@@ -36,7 +24,7 @@ enum pit_value_sort pit_value_sort(pit_value v);
 u64 pit_value_data(pit_value v);
 
 typedef struct {
-    i64 top, cap;
+    i64 capacity, next;
     pit_value data[];
 } pit_values;
 pit_values *pit_values_new(i64 capacity);
@@ -86,7 +74,7 @@ typedef struct {
     } in;
 } pit_runtime_eval_program_entry;
 typedef struct {
-    i64 top, cap;
+    i64 capacity, next;
     pit_runtime_eval_program_entry data[];
 } pit_runtime_eval_program;
 pit_runtime_eval_program *pit_runtime_eval_program_new(i64 capacity);
@@ -95,11 +83,11 @@ void pit_runtime_eval_program_push_apply(struct pit_runtime *rt, pit_runtime_eva
 
 typedef struct pit_runtime {
     /* interpreter state */
-    pit_arena *values; /* all heavy values - effectively an array of pit_value_heavy - MUTABLE! */
-    pit_arena *values_backbuffer; /* other values buffer (used by GC) */
-    pit_arena *arrays; /* all arrays - MUTABLE! */
-    pit_arena *bytes; /* all bytestrings (including symbol names) - immutable */
-    pit_arena *symtab; i64 symtab_len; /* all symbols - effectively an array of pit_symtab_entry - MUTABLE! */
+    pit_arena *heap; /* all heavy values, bytestrings, and arrays. */
+    /* bytestrings and arrays are allocated at the end (descending), heavy values are allocated at the front */
+    /* this allows us to iterate over only heavy values at the front (useful in Cheney's algorithm for GC */
+    pit_arena *backbuffer; /* additional allocation, the same size as the heap (used by GC) */
+    pit_arena *symtab; i64 symtab_len; /* all symbols - effectively an array of pit_symtab_entry */
     /* temporary/"scratch" memory */
     pit_arena *scratch; /* temporary arena used during parsing and evaluation */
     pit_values *saved_bindings; /* stack used to save old values of bindings to be restored ("shallow binding") */
@@ -108,7 +96,7 @@ typedef struct pit_runtime {
     pit_runtime_eval_program *program; /* intermediate stack-based program constructed during evaluation */
     /* bookkeeping */
     /* "frozen" values offsets: values before these offsets are immutable, and we can reset here later */
-    i64 frozen_values, frozen_arrays, frozen_bytes, frozen_symtab;
+    i64 frozen_values, frozen_symtab;
     pit_value error; /* error value - if this is non-nil, an error has occured! only tracks the first error */
     i64 source_line, source_column; /* for error reporting only; line and column of token start */
     i64 error_line, error_column; /* line and column of token start at time of error */
@@ -162,8 +150,6 @@ pit_value pit_bytes_new_cstr(pit_runtime *rt, char *s);
 pit_value pit_bytes_new_file(pit_runtime *rt, char *path);
 bool pit_bytes_match(pit_runtime *rt, pit_value v, u8 *buf, i64 len);
 i64 pit_as_bytes(pit_runtime *rt, pit_value v, u8 *buf, i64 maxlen);
-bool pit_lexer_from_bytes(pit_runtime *rt, pit_lexer *ret, pit_value v);
-pit_value pit_read_bytes(pit_runtime *rt, pit_value v);
 
 /* working with the symbol table */
 pit_value pit_intern(pit_runtime *rt, u8 *nm, i64 len);
@@ -231,7 +217,7 @@ pit_value pit_eval(pit_runtime *rt, pit_value e);
 void pit_collect_garbage(pit_runtime *rt);
 
 /* repl / file loading */
-void pit_run_file(pit_runtime *rt, char *path);
+pit_value pit_load_file(pit_runtime *rt, char *path);
 void pit_repl(pit_runtime *rt);
 
 #endif

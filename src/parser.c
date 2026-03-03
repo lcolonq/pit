@@ -2,10 +2,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "lcq/pit/types.h"
-#include "lcq/pit/lexer.h"
-#include "lcq/pit/parser.h"
-#include "lcq/pit/runtime.h"
+#include <lcq/pit/types.h>
+#include <lcq/pit/lexer.h>
+#include <lcq/pit/parser.h>
+#include <lcq/pit/runtime.h>
 
 static pit_lex_token peek(pit_parser *st) {
     if (!st) return PIT_LEX_TOKEN_ERROR;
@@ -106,7 +106,7 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
              i >= scratch_reset;
              i -= (i64) sizeof(pit_value)
         ) {
-            pit_value *v = pit_arena_idx(rt->scratch, (i32) i);
+            pit_value *v = pit_arena_get(rt->scratch, (i32) i);
             ret = pit_cons(rt, *v, ret);
         }
         rt->scratch->next = scratch_reset;
@@ -125,7 +125,7 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
             }
         }
         rt->scratch->next = scratch_reset;
-        return pit_array_from_buf(rt, pit_arena_idx(rt->scratch, (i32) scratch_reset), len);
+        return pit_array_from_buf(rt, pit_arena_get(rt->scratch, (i32) scratch_reset), len);
     }
     case PIT_LEX_TOKEN_QUOTE:
         return pit_list(rt, 2, pit_intern_cstr(rt, "quote"), pit_parse(rt, st, eof));

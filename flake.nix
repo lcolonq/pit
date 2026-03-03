@@ -25,6 +25,7 @@
           };
           devShells.default = pkgs.mkShell {
             hardeningDisable = ["all"];
+            NIX_ENFORCE_NO_NATIVE = "0";
             buildInputs = [
               pkgs.musl
               pkgs.valgrind

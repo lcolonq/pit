@@ -523,7 +523,7 @@ static pit_value impl_array(pit_runtime *rt, pit_value args) {
         args = pit_cdr(rt, args);
     }
     rt->scratch->next = scratch_reset;
-    return pit_array_from_buf(rt, pit_arena_idx(rt->scratch, (i32) scratch_reset), len);
+    return pit_array_from_buf(rt, pit_arena_get(rt->scratch, (i32) scratch_reset), len);
 }
 static pit_value impl_array_to_list(pit_runtime *rt, pit_value args) {
     pit_value arr = pit_car(rt, args);
@@ -807,7 +807,7 @@ void pit_install_library_essential(pit_runtime *rt) {
 
 static pit_value impl_diagnostics(pit_runtime *rt, pit_value args) {
     (void) args;
-    fprintf(stderr, "value allocs: %ld\n", rt->values->next);
+    fprintf(stderr, "value allocs: %ld\n", rt->heap->next);
     return PIT_NIL;
 }
 static pit_value impl_print(pit_runtime *rt, pit_value args) {
@@ -832,21 +832,7 @@ static pit_value impl_load(pit_runtime *rt, pit_value args) {
     i64 len = pit_as_bytes(rt, path, (u8 *) pathbuf, sizeof(pathbuf) - 1);
     if (len < 0) { pit_error(rt, "path was not a string"); return PIT_NIL; }
     pathbuf[len] = 0;
-    pit_value bs = pit_bytes_new_file(rt, pathbuf);
-    pit_lexer lex = {0};
-    if (!pit_lexer_from_bytes(rt, &lex, bs)) {
-        pit_error(rt, "failed to initialize lexer");
-        return PIT_NIL;
-    }
-    pit_parser parse = {0};
-    pit_parser_from_lexer(&parse, &lex);
-    pit_value ret = PIT_NIL;
-    bool eof = false;
-    pit_value p = PIT_NIL;
-    while (p = pit_parse(rt, &parse, &eof), !eof) {
-        ret = pit_eval(rt, p);
-    }
-    return ret;
+    return pit_load_file(rt, pathbuf);
 }
 void pit_install_library_io(pit_runtime *rt) {
     /* diagnostics */

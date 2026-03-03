@@ -17,6 +17,7 @@ int main(int argc, char **argv) {
     if (argc < 2) {
         pit_repl(rt);
     } else {
-        pit_run_file(rt, argv[1]);
+        pit_load_file(rt, argv[1]);
+        if (pit_runtime_print_error(rt)) return -1;
     }
 }

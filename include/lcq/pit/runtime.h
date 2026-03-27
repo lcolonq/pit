@@ -9,7 +9,7 @@ struct pit_runtime;
 
 /* nil is always the symbol with index 0 */
 #define PIT_NIL 0xfff4000000000000 /* 0b1111111111110100000000000000000000000000000000000000000000000000 */
-#define PIT_T   (PIT_NIL+sizeof(pit_symtab_entry))
+#define PIT_T   (PIT_NIL+1)
 
 enum pit_value_sort {
     PIT_VALUE_SORT_DOUBLE  = 0, /* 0b00 - double */

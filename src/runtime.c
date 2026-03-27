@@ -212,10 +212,14 @@ double pit_as_double(pit_runtime *rt, pit_value v) {
         pit_error(rt, "invalid use of value as double");
         return 0.0;
     }
-    return (double) v;
+    union { double dval; u64 ival; } x;
+    x.ival = v;
+    return x.dval;
 }
 pit_value pit_double_new(pit_runtime *rt, double d) {
-    return pit_value_new(rt, PIT_VALUE_SORT_DOUBLE, (u64) d);
+    union { double dval; u64 ival; } x;
+    x.dval = d;
+    return pit_value_new(rt, PIT_VALUE_SORT_DOUBLE, x.ival);
 }
 
 i64 pit_as_integer(pit_runtime *rt, pit_value v) {

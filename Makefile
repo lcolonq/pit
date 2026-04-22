@@ -2,15 +2,18 @@ CC ?= gcc
 AR ?= ar
 CHK_SOURCES ?= src/main.c $(SRCS)
 CPPFLAGS ?= -MMD -MP
-CFLAGS ?= -march=native --std=c99 -g -Ideps/ -Isrc/ -Iinclude/ -Wall -Wextra -Wpedantic -Wconversion -Wformat-security -Wshadow -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes -Wnull-dereference -Wfloat-equal -Wundef -Wpointer-arith -Wbad-function-cast -Wlogical-op -Wmissing-braces -Wcast-align -Wstrict-overflow=5 -ftrapv
+CFLAGS ?= --std=c99 -g -Ideps/ -Isrc/ -Iinclude/ -Wall -Wextra -Wpedantic -Wconversion -Wformat-security -Wshadow -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes -Wnull-dereference -Wfloat-equal -Wundef -Wpointer-arith -Wbad-function-cast -Wlogical-op -Wmissing-braces -Wcast-align -Wstrict-overflow=5 -ftrapv
 LDFLAGS ?= -g -static
 
 BUILD = build_$(CC)
 
-SRCS := src/utils.c src/lexer.c src/parser.c src/runtime.c src/library.c
-OBJECTS := $(SRCS:src/%.c=$(BUILD)/%.o)
+SRCS_CORE := src/utils.c src/lexer.c src/parser.c src/runtime.c src/library.c
+OBJECTS_CORE := $(SRCS_CORE:src/%.c=$(BUILD)/%.o)
+LIB_CORE := libcolonq-pit.a
+SRCS_NATIVE := src/native.c
+OBJECTS_NATIVE := $(SRCS_NATIVE:src/%.c=$(BUILD)/%.o)
+LIB_NATIVE := libcolonq-pit-native.a
 EXE := pit
-LIB := libcolonq-pit.a
 
 prefix ?= /usr/local
 exec_prefix ?= $(prefix)
@@ -20,12 +23,15 @@ libdir ?= $(exec_prefix)/lib
 
 .PHONY: all clean install check-syntax
 
-all: $(EXE) $(LIB)
+all: $(EXE) $(LIB) $(LIB_NATIVE)
 
-$(EXE): $(BUILD)/main.o $(LIB)
+$(EXE): $(BUILD)/main.o $(LIB_NATIVE) $(LIB_CORE)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-$(LIB): $(OBJECTS)
+$(LIB_CORE): $(OBJECTS_CORE)
+	ar rcs $@ $^
+
+$(LIB_NATIVE): $(OBJECTS_NATIVE)
 	ar rcs $@ $^
 
 $(BUILD):
@@ -52,4 +58,5 @@ check-syntax: TAGS
 	gcc $(CFLAGS) -fsyntax-only $(CHK_SOURCES)
 
 -include $(BUILD)/main.d
--include $(OBJECTS:.o=.d)
+-include $(OBJECTS_CORE:.o=.d)
+-include $(OBJECTS_NATIVE:.o=.d)

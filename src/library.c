@@ -1,7 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 #include <lcq/pit/lexer.h>
 #include <lcq/pit/parser.h>
 #include <lcq/pit/runtime.h>
@@ -94,7 +90,7 @@ static pit_value impl_m_defstruct(pit_runtime *rt, pit_value args) {
     if (nm_len < 0) return PIT_NIL;
     nm_str[nm_len] = 0;
     /* constructor */
-    snprintf(buf, sizeof(buf), ":%s", nm_str);
+    pit_string_snprintf(buf, sizeof(buf), ":%s", nm_str);
     aargs = pit_cons(rt, pit_intern_cstr(rt, buf), pit_cons(rt, pit_intern_cstr(rt, "array"), PIT_NIL));
     fields = pit_cdr(rt, args);
     while (fields != PIT_NIL) {
@@ -104,14 +100,14 @@ static pit_value impl_m_defstruct(pit_runtime *rt, pit_value args) {
         );
         if (field_len < 0) return PIT_NIL;
         field_str[field_len] = 0;
-        snprintf(buf, sizeof(buf), ":%s", field_str);
+        pit_string_snprintf(buf, sizeof(buf), ":%s", field_str);
         aargs = pit_cons(rt,
             pit_list(rt, 3, pit_intern_cstr(rt, "plist/get"), pit_intern_cstr(rt, buf), pit_intern_cstr(rt, "kwargs")),
             aargs
         );
         fields = pit_cdr(rt, fields);
     }
-    snprintf(buf, sizeof(buf), "%s/new", nm_str);
+    pit_string_snprintf(buf, sizeof(buf), "%s/new", nm_str);
     df = pit_list(rt, 4,
         pit_intern_cstr(rt, "defun!"),
         pit_intern_cstr(rt, buf),
@@ -130,7 +126,7 @@ static pit_value impl_m_defstruct(pit_runtime *rt, pit_value args) {
         if (field_len < 0) return PIT_NIL;
         field_str[field_len] = 0;
         /* getter */
-        snprintf(buf, sizeof(buf), "%s/get-%s", nm_str, field_str);
+        pit_string_snprintf(buf, sizeof(buf), "%s/get-%s", nm_str, field_str);
         df = pit_list(rt, 4,
             pit_intern_cstr(rt, "defun!"),
             pit_intern_cstr(rt, buf),
@@ -143,7 +139,7 @@ static pit_value impl_m_defstruct(pit_runtime *rt, pit_value args) {
         );
         ret = pit_cons(rt, df, ret);
         /* setter */
-        snprintf(buf, sizeof(buf), "%s/set-%s!", nm_str, field_str);
+        pit_string_snprintf(buf, sizeof(buf), "%s/set-%s!", nm_str, field_str);
         df = pit_list(rt, 4,
             pit_intern_cstr(rt, "defun!"),
             pit_intern_cstr(rt, buf),
@@ -805,45 +801,6 @@ void pit_install_library_essential(pit_runtime *rt) {
     pit_fset(rt, pit_intern_cstr(rt, "bitwise/rshift"), pit_nativefunc_new(rt, impl_bitwise_rshift));
 }
 
-static pit_value impl_diagnostics(pit_runtime *rt, pit_value args) {
-    (void) args;
-    fprintf(stderr, "value allocs: %ld\n", rt->heap->next);
-    return PIT_NIL;
-}
-static pit_value impl_print(pit_runtime *rt, pit_value args) {
-    pit_value x = pit_car(rt, args);
-    char buf[1024] = {0};
-    pit_dump(rt, buf, sizeof(buf), x, true);
-    buf[1023] = 0;
-    puts(buf);
-    return x;
-}
-static pit_value impl_princ(pit_runtime *rt, pit_value args) {
-    pit_value x = pit_car(rt, args);
-    char buf[1024] = {0};
-    pit_dump(rt, buf, sizeof(buf), x, false);
-    buf[1023] = 0;
-    puts(buf);
-    return x;
-}
-static pit_value impl_load(pit_runtime *rt, pit_value args) {
-    pit_value path = pit_car(rt, args);
-    char pathbuf[1024] = {0};
-    i64 len = pit_as_bytes(rt, path, (u8 *) pathbuf, sizeof(pathbuf) - 1);
-    if (len < 0) { pit_error(rt, "path was not a string"); return PIT_NIL; }
-    pathbuf[len] = 0;
-    return pit_load_file(rt, pathbuf);
-}
-void pit_install_library_io(pit_runtime *rt) {
-    /* diagnostics */
-    pit_fset(rt, pit_intern_cstr(rt, "diagnostics!"), pit_nativefunc_new(rt, impl_diagnostics));
-    /* stream IO */
-    pit_fset(rt, pit_intern_cstr(rt, "print!"), pit_nativefunc_new(rt, impl_print));
-    pit_fset(rt, pit_intern_cstr(rt, "princ!"), pit_nativefunc_new(rt, impl_princ));
-    /* disk IO */
-    pit_fset(rt, pit_intern_cstr(rt, "load!"), pit_nativefunc_new(rt, impl_load));
-}
-
 static pit_value impl_plist_get(pit_runtime *rt, pit_value args) {
     pit_value k = pit_car(rt, args);
     pit_value vs = pit_car(rt, pit_cdr(rt, args));
@@ -869,98 +826,4 @@ static pit_value impl_alist_get(pit_runtime *rt, pit_value args) {
 void pit_install_library_alist(pit_runtime *rt) {
     /* association lists */
     pit_fset(rt, pit_intern_cstr(rt, "alist/get"), pit_nativefunc_new(rt, impl_alist_get));
-}
-
-struct bytestring {
-    i64 len, cap;
-    u8 *data;
-};
-static pit_value impl_bs_new(pit_runtime *rt, pit_value args) {
-    (void) args;
-    i64 cap = 256;
-    struct bytestring *bs = malloc(sizeof(struct bytestring));
-    bs->len = 0;
-    bs->cap = cap;
-    bs->data = calloc((size_t) cap, 1);
-    return pit_nativedata_new(rt, pit_intern_cstr(rt, "bs"), (void *) bs);
-}
-static pit_value impl_bs_delete(pit_runtime *rt, pit_value args) {
-    pit_value v = pit_car(rt, args);
-    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, v));
-    if (!h) { pit_error(rt, "bad ref"); return PIT_NIL; }
-    if (h->hsort != PIT_VALUE_HEAVY_SORT_NATIVEDATA) {
-        pit_error(rt, "invalid use of value as bytestring nativedata");
-        return PIT_NIL;
-    }
-    if (!pit_eq(h->in.nativedata.tag, pit_intern_cstr(rt, "bs"))) {
-        pit_error(rt, "native value is not a bytestring");
-        return PIT_NIL;
-    }
-    if (!h->in.nativedata.data) {
-        pit_error(rt, "bytestring was already freed");
-        return PIT_NIL;
-    }
-    struct bytestring *bs = h->in.nativedata.data;
-    if (bs->data) free(bs->data);
-    bs->data = NULL;
-    free(bs);
-    h->in.nativedata.data = NULL;
-    return PIT_T;
-}
-static pit_value impl_bs_grow(pit_runtime *rt, pit_value args) {
-    pit_value vsz = pit_car(rt, args);
-    pit_value v = pit_car(rt, pit_cdr(rt, args));
-    struct bytestring *bs = pit_nativedata_get(rt, pit_intern_cstr(rt, "bs"), v);
-    if (!bs) return PIT_NIL;
-    i64 sz = pit_as_integer(rt, vsz);
-    if (sz > bs->len) {
-        if (sz > bs->cap) {
-            while (bs->cap < sz) bs->cap <<= 1;
-            bs->data = realloc(bs->data, (size_t) bs->cap);
-        }
-        bs->len = sz;
-    }
-    return v;
-}
-static pit_value impl_bs_spit(pit_runtime *rt, pit_value args) {
-    pit_value path = pit_car(rt, args);
-    char pathbuf[1024] = {0};
-    i64 len = pit_as_bytes(rt, path, (u8 *) pathbuf, sizeof(pathbuf) - 1);
-    if (len < 0) { pit_error(rt, "path was not a string"); return PIT_NIL; }
-    pathbuf[len] = 0;
-    pit_value v = pit_car(rt, pit_cdr(rt, args));
-    struct bytestring *bs = pit_nativedata_get(rt, pit_intern_cstr(rt, "bs"), v);
-    if (!bs) return PIT_NIL;
-    FILE *f = fopen(pathbuf, "w+");
-    if (!f) { pit_error(rt, "failed to open file: %s", pathbuf); return PIT_NIL; }
-    size_t written = fwrite(bs->data, 1, (size_t) bs->len, f);
-    fclose(f);
-    if (written != (size_t) bs->len) {
-        pit_error(rt, "failed to write bytestring to file: %s", pathbuf);
-        return PIT_NIL;
-    }
-    return v;
-}
-static pit_value impl_bs_write8(pit_runtime *rt, pit_value args) {
-    pit_value v = pit_car(rt, args);
-    pit_value vidx = pit_car(rt, pit_cdr(rt, args));
-    pit_value vx = pit_car(rt, pit_cdr(rt, pit_cdr(rt, args)));
-    struct bytestring *bs = pit_nativedata_get(rt, pit_intern_cstr(rt, "bs"), v);
-    if (!bs) return PIT_NIL;
-    i64 idx = pit_as_integer(rt, vidx);
-    u8 x = (u8) pit_as_integer(rt, vx);
-    if (idx >= bs->len) {
-        pit_error(rt, "index %d out of bounds in bytestring (length %d)", idx, bs->len);
-        return PIT_NIL;
-    }
-    bs->data[idx] = x;
-    return v;
-}
-void pit_install_library_bytestring(pit_runtime *rt) {
-    /* bytestrings */
-    pit_fset(rt, pit_intern_cstr(rt, "bs/new!"), pit_nativefunc_new(rt, impl_bs_new));
-    pit_fset(rt, pit_intern_cstr(rt, "bs/delete!"), pit_nativefunc_new(rt, impl_bs_delete));
-    pit_fset(rt, pit_intern_cstr(rt, "bs/grow!"), pit_nativefunc_new(rt, impl_bs_grow));
-    pit_fset(rt, pit_intern_cstr(rt, "bs/spit!"), pit_nativefunc_new(rt, impl_bs_spit));
-    pit_fset(rt, pit_intern_cstr(rt, "bs/write8!"), pit_nativefunc_new(rt, impl_bs_write8));
 }

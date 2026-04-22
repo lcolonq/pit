@@ -18,6 +18,9 @@
               make prefix=$out install
             '';
           };
+          wasm32-clang = pkgs.writeShellScriptBin "wasm32-clang" ''
+            ${pkgs.llvmPackages.clang-unwrapped}/bin/clang -I${pkgs.llvmPackages.clang}/resource-root/include --target=wasm32-unknown-unknown "$@"
+          '';
         in {
           packages = {
             inherit pit;
@@ -30,6 +33,7 @@
               pkgs.musl
               pkgs.valgrind
               pkgs.universal-ctags
+              wasm32-clang
             ];
           };
         }

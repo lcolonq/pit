@@ -1,7 +1,3 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-
 #include <lcq/pit/types.h>
 #include <lcq/pit/lexer.h>
 #include <lcq/pit/parser.h>
@@ -33,7 +29,7 @@ static bool match(pit_parser *st, pit_lex_token t) {
 static void get_token_string(pit_parser *st, char *buf, i64 len) {
     i64 diff = st->cur.end - st->cur.start;
     i64 tlen = diff >= len ? len - 1 : diff;
-    memcpy(buf, st->lexer->input + st->cur.start, (size_t) tlen);
+    pit_string_memcpy((u8 *) buf, (u8 *) st->lexer->input + st->cur.start, (size_t) tlen);
     buf[tlen] = 0;
 }
 
@@ -154,7 +150,7 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
     case PIT_LEX_TOKEN_STRING_LITERAL: {
         char buf[256] = {0};
         get_token_string(st, buf, sizeof(buf));
-        i64 len = (i64) strlen(buf);
+        i64 len = (i64) pit_string_strlen(buf);
         i64 cur = 0;
         for (i64 i = 1; i < len; ++i) {
             if (buf[i] == '\\' && i + 1 < len) buf[cur++] = buf[++i];

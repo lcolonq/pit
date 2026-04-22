@@ -1,8 +1,3 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <ctype.h>
-
 #include <lcq/pit/utils.h>
 #include <lcq/pit/lexer.h>
 #include <lcq/pit/types.h>
@@ -29,13 +24,12 @@ static bool is_more_input(pit_lexer *st) {
 }
 
 static int is_symchar(int c) {
-    return c != '(' && c != ')' && c != '.' && c != '\'' && c != '"' && isprint(c) && !isspace(c);
+    return c != '(' && c != ')' && c != '.' && c != '\'' && c != '"' && pit_ctype_isprint(c) && !pit_ctype_isspace(c);
 }
 
 static int is_hexdigit(int c) {
-    return isdigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    return pit_ctype_isdigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
-
 
 static char peek(pit_lexer *st) {
     if (is_more_input(st)) return st->input[st->end];
@@ -63,16 +57,6 @@ static bool match(pit_lexer *st, int (*f)(int)) {
     } else return false;
 }
 
-void pit_lex_cstr(pit_lexer *ret, char *buf) {
-    ret->input = buf;
-    ret->len = (i64) strlen(buf);
-    ret->start = 0;
-    ret->end = 0;
-    ret->line = ret->start_line = 1;
-    ret->column = ret->start_column = 0;
-    ret->error = NULL;
-}
-
 void pit_lex_bytes(pit_lexer *ret, char *buf, i64 len) {
     ret->len = len;
     ret->input = buf;
@@ -81,21 +65,6 @@ void pit_lex_bytes(pit_lexer *ret, char *buf, i64 len) {
     ret->line = ret->start_line = 1;
     ret->column = ret->start_column = 0;
     ret->error = NULL;
-}
-i64 pit_lex_file(pit_lexer *ret, char *path) {
-    FILE *f = fopen(path, "r");
-    if (f == NULL) { return -1; }
-    fseek(f, 0, SEEK_END);
-    i64 len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char *buf = calloc((size_t) len, sizeof(char));
-    if ((size_t) len != fread(buf, sizeof(char), (size_t) len, f)) {
-        fclose(f);
-        return -1;
-    }
-    fclose(f);
-    pit_lex_bytes(ret, buf, len);
-    return 0;
 }
 
 pit_lex_token pit_lex_next(pit_lexer *st) {
@@ -124,8 +93,8 @@ restart:
         advance(st);
         return PIT_LEX_TOKEN_STRING_LITERAL;
     default:
-        if (isspace(c)) goto restart;
-        if (isdigit(c)) {
+        if (pit_ctype_isspace(c)) goto restart;
+        if (pit_ctype_isdigit(c)) {
             if (c == '0') {
                 int next = peek(st);
                 if (next != 'x' && next != 'o' && next != 'b') return PIT_LEX_TOKEN_INTEGER_LITERAL;
@@ -138,4 +107,14 @@ restart:
             return PIT_LEX_TOKEN_SYMBOL;
         }
     }
+}
+
+void pit_lex_cstr(pit_lexer *ret, char *buf) {
+    ret->input = buf;
+    ret->len = (i64) pit_string_strlen(buf);
+    ret->start = 0;
+    ret->end = 0;
+    ret->line = ret->start_line = 1;
+    ret->column = ret->start_column = 0;
+    ret->error = NULL;
 }

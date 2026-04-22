@@ -27,7 +27,7 @@ typedef struct {
     i64 capacity, next;
     pit_value data[];
 } pit_values;
-pit_values *pit_values_new(i64 capacity);
+pit_values *pit_values_new(u8 *buf, i64 buf_len);
 void pit_values_push(struct pit_runtime *rt, pit_values *s, pit_value x);
 pit_value pit_values_pop(struct pit_runtime *rt, pit_values *s);
 
@@ -77,7 +77,7 @@ typedef struct {
     i64 capacity, next;
     pit_runtime_eval_program_entry data[];
 } pit_runtime_eval_program;
-pit_runtime_eval_program *pit_runtime_eval_program_new(i64 capacity);
+pit_runtime_eval_program *pit_runtime_eval_program_new(u8 *buf, i64 buf_len);
 void pit_runtime_eval_program_push_literal(struct pit_runtime *rt, pit_runtime_eval_program *s, pit_value x);
 void pit_runtime_eval_program_push_apply(struct pit_runtime *rt, pit_runtime_eval_program *s, i64 arity);
 
@@ -101,7 +101,7 @@ typedef struct pit_runtime {
     i64 source_line, source_column; /* for error reporting only; line and column of token start */
     i64 error_line, error_column; /* line and column of token start at time of error */
 } pit_runtime;
-pit_runtime *pit_runtime_new(void);
+pit_runtime *pit_runtime_new(u8 *buf, i64 len);
 
 void pit_runtime_freeze(pit_runtime *rt); /* freeze the runtime at the current point - everything currently defined becomes immutable */
 void pit_runtime_reset(pit_runtime *rt); /* restore the runtime to the frozen point, resetting everything that has happened since */
@@ -109,8 +109,8 @@ bool pit_runtime_print_error(pit_runtime *rt); /* return true if an error has oc
 
 i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable); /* if readable is true, try to produce output that can be machine-read (quotes on strings, etc) */
 #define pit_trace(rt, v) pit_trace_(rt, "Trace [" __FILE__ ":" PIT_STR(__LINE__) "] %s\n", v)
-void pit_trace_(pit_runtime *rt, const char *format, pit_value v);
-void pit_error(pit_runtime *rt, const char *format, ...);
+void pit_trace_(pit_runtime *rt, char *format, pit_value v);
+void pit_error(pit_runtime *rt, char *format, ...);
 
 /* working with small values */
 pit_value pit_value_new(pit_runtime *rt, enum pit_value_sort s, u64 data);
@@ -219,5 +219,8 @@ void pit_collect_garbage(pit_runtime *rt);
 /* repl / file loading */
 pit_value pit_load_file(pit_runtime *rt, char *path);
 void pit_repl(pit_runtime *rt);
+
+/* test entrypoint */
+int pit_runtime_test(u8 *out, i64 out_len, u8 *buf, i64 len);
 
 #endif

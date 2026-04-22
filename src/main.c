@@ -8,7 +8,9 @@
 #include <lcq/pit/library.h>
 
 int main(int argc, char **argv) {
-    pit_runtime *rt = pit_runtime_new();
+    i64 sz = 256 * 1024 * 1024;
+    u8 *buf = malloc((size_t) sz);
+    pit_runtime *rt = pit_runtime_new(buf, sz);
     pit_install_library_essential(rt);
     pit_install_library_io(rt);
     pit_install_library_plist(rt);

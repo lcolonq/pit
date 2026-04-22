@@ -1,10 +1,3 @@
-#include <stddef.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <string.h>
-#include <math.h>
-
 #include <lcq/pit/utils.h>
 #include <lcq/pit/lexer.h>
 #include <lcq/pit/parser.h>
@@ -29,17 +22,22 @@ u64 pit_value_data(pit_value v) {
     return v & 0x1ffffffffffff;
 }
 
-pit_runtime *pit_runtime_new() {
-    pit_runtime *ret = malloc(sizeof(*ret));
-    ret->heap = pit_arena_new(64 * 1024 * 1024, sizeof(pit_value_heavy));
-    ret->backbuffer = pit_arena_new(64 * 1024 * 1024, sizeof(pit_value_heavy));
-    ret->symtab = pit_arena_new(1024 * 1024, sizeof(pit_symtab_entry));
+pit_runtime *pit_runtime_new(u8 *buf, i64 len) {
+    pit_arena *a = pit_arena_new(buf, len, sizeof(u8));
+    pit_runtime *ret = pit_arena_alloc_back(a, sizeof(*ret));
+    i64 heap_size = 64 * 1024 * 1024;
+    i64 symtab_size = 1024 * 1024;
+    i64 scratch_size = 1024 * 1024;
+    i64 stack_size = 64 * 1024;
+    ret->heap = pit_arena_new(pit_arena_alloc_back(a, heap_size), heap_size, sizeof(pit_value_heavy));
+    ret->backbuffer = pit_arena_new(pit_arena_alloc_back(a, heap_size), heap_size, sizeof(pit_value_heavy));
+    ret->symtab = pit_arena_new(pit_arena_alloc_back(a, symtab_size), symtab_size, sizeof(pit_symtab_entry));
     ret->symtab_len = 0;
-    ret->scratch = pit_arena_new(1024 * 1024, sizeof(u8));
-    ret->expr_stack = pit_values_new(64 * 1024);
-    ret->result_stack = pit_values_new(64 * 1024);
-    ret->program = pit_runtime_eval_program_new(64 * 1024);
-    ret->saved_bindings = pit_values_new(64 * 1024);
+    ret->scratch = pit_arena_new(pit_arena_alloc_back(a, scratch_size), scratch_size, sizeof(u8));
+    ret->expr_stack = pit_values_new(pit_arena_alloc_back(a, stack_size), stack_size);
+    ret->result_stack = pit_values_new(pit_arena_alloc_back(a, stack_size), stack_size);
+    ret->program = pit_runtime_eval_program_new(pit_arena_alloc_back(a, stack_size), stack_size);
+    ret->saved_bindings = pit_values_new(pit_arena_alloc_back(a, stack_size), stack_size);
     ret->frozen_values = 0;
     ret->frozen_symtab = 0;
     ret->error = PIT_NIL;
@@ -61,16 +59,6 @@ void pit_runtime_reset(pit_runtime *rt) {
     rt->heap->next = rt->frozen_values;
     rt->symtab->next = rt->frozen_symtab;
 }
-bool pit_runtime_print_error(pit_runtime *rt) {
-    if (!pit_eq(rt->error, PIT_NIL)) {
-        char buf[1024] = {0};
-        i64 end = pit_dump(rt, buf, sizeof(buf) - 1, rt->error, false);
-        buf[end] = 0;
-        fprintf(stderr, "error at line %ld, column %ld: %s\n", rt->error_line, rt->error_column, buf);
-        return true;
-    }
-    return false;
-}
 
 #define CHECK_BUF if (buf >= end) { return buf - start; }
 #define CHECK_BUF_LABEL(label) if (buf >= end) { goto label; }
@@ -79,9 +67,9 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
     if (len <= 0) return 0;
     switch (pit_value_sort(v)) {
     case PIT_VALUE_SORT_DOUBLE:
-        return snprintf(buf, (size_t) len, "%lf", pit_as_double(rt, v));
+        return pit_string_snprintf(buf, (size_t) len, "%lf", pit_as_double(rt, v));
     case PIT_VALUE_SORT_INTEGER:
-        return snprintf(buf, (size_t) len, "%ld", pit_as_integer(rt, v));
+        return pit_string_snprintf(buf, (size_t) len, "%ld", pit_as_integer(rt, v));
     case PIT_VALUE_SORT_SYMBOL: {
         pit_symtab_entry *ent = pit_symtab_lookup(rt, v);
         if (ent
@@ -94,7 +82,7 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
             }
             return i;
         } else {
-            return snprintf(buf, (size_t) len, "<broken symbol %ld>", pit_as_symbol(rt, v));
+            return pit_string_snprintf(buf, (size_t) len, "<broken symbol %ld>", pit_as_symbol(rt, v));
         }
     }
     case PIT_VALUE_SORT_REF: {
@@ -102,7 +90,7 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
         char *end = buf + len;
         char *start = buf;
         h = pit_deref(rt, r);
-        if (!h) snprintf(buf, (size_t) len, "<ref %ld>", r);
+        if (!h) pit_string_snprintf(buf, (size_t) len, "<ref %ld>", r);
         else {
             switch (h->hsort) {
             case PIT_VALUE_HEAVY_SORT_CELL: {
@@ -119,7 +107,7 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
                         CHECK_BUF_LABEL(list_end); *(buf++) = ' ';
                         CHECK_BUF_LABEL(list_end); buf += pit_dump(rt, buf, end - buf, pit_car(rt, cur), readable);
                     } else {
-                        CHECK_BUF_LABEL(list_end); buf += snprintf(buf, (size_t) (end - buf), " . ");
+                        CHECK_BUF_LABEL(list_end); buf += pit_string_snprintf(buf, (size_t) (end - buf), " . ");
                         CHECK_BUF_LABEL(list_end); buf += pit_dump(rt, buf, end - buf, cur, readable);
                     }
                 } while (!pit_eq((cur = pit_cdr(rt, cur)), PIT_NIL));
@@ -158,7 +146,7 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
                 return i;
             }
             default:
-                return snprintf(buf, (size_t) len, "<ref %ld>", r);
+                return pit_string_snprintf(buf, (size_t) len, "<ref %ld>", r);
             }
         }
         break;
@@ -167,19 +155,12 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
     return 0;
 }
 
-void pit_trace_(pit_runtime *rt, const char *format, pit_value v) {
-    char buf[1024] = {0};
-    i64 end = pit_dump(rt, buf, sizeof(buf) - 1, v, true);
-    buf[end] = 0;
-    fprintf(stderr, format, buf);
-}
-
-void pit_error(pit_runtime *rt, const char *format, ...) {
+void pit_error(pit_runtime *rt, char *format, ...) {
     if (rt->error == PIT_NIL) { /* only record the first error encountered */
         char buf[1024] = {0};
         va_list vargs;
         va_start(vargs, format);
-        vsnprintf(buf, sizeof(buf), format, vargs);
+        pit_string_snprintf(buf, sizeof(buf), format, vargs);
         va_end(vargs);
         rt->error = PIT_T; /* we set the error now to prevent infinite recursion */
         rt->error = pit_bytes_new_cstr(rt, buf); /* in case this errs also */
@@ -379,7 +360,7 @@ bool pit_equal(pit_runtime *rt, pit_value a, pit_value b) {
 pit_value pit_bytes_new(pit_runtime *rt, u8 *buf, i64 len) {
     u8 *dest = pit_arena_alloc_back(rt->heap, len);
     if (!dest) { pit_error(rt, "failed to allocate bytes"); return PIT_NIL; }
-    memcpy(dest, buf, (size_t) len);
+    pit_string_memcpy(dest, buf, (size_t) len);
     pit_value ret = pit_heavy_new(rt);
     pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, ret));
     if (!h) { pit_error(rt, "failed to create new heavy value for bytes"); return PIT_NIL; }
@@ -389,33 +370,7 @@ pit_value pit_bytes_new(pit_runtime *rt, u8 *buf, i64 len) {
     return ret;
 }
 pit_value pit_bytes_new_cstr(pit_runtime *rt, char *s) {
-    return pit_bytes_new(rt, (u8 *) s, (i64) strlen(s));
-}
-pit_value pit_bytes_new_file(pit_runtime *rt, char *path) {
-    if (rt->error != PIT_NIL) return PIT_NIL;
-    FILE *f = fopen(path, "r");
-    if (f == NULL) {
-        pit_error(rt, "failed to open file: %s", path);
-        return PIT_NIL;
-    }
-    fseek(f, 0, SEEK_END);
-    i64 len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    u8 *dest = pit_arena_alloc_bulk(rt->heap, len);
-    if (!dest) { pit_error(rt, "failed to allocate bytes"); fclose(f); return PIT_NIL; }
-    if ((size_t) len != fread(dest, sizeof(char), (size_t) len, f)) {
-        fclose(f);
-        pit_error(rt, "failed to read file: %s", path);
-        return PIT_NIL;
-    }
-    fclose(f);
-    pit_value ret = pit_heavy_new(rt);
-    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, ret));
-    if (!h) { pit_error(rt, "failed to create new heavy value for bytes"); return PIT_NIL; }
-    h->hsort = PIT_VALUE_HEAVY_SORT_BYTES;
-    h->in.bytes.data = dest;
-    h->in.bytes.len = len;
-    return ret;
+    return pit_bytes_new(rt, (u8 *) s, (i64) pit_string_strlen(s));
 }
 /* return true if v is a reference to bytes that are the same as those in buf */
 bool pit_bytes_match(pit_runtime *rt, pit_value v, u8 *buf, i64 len) {
@@ -465,7 +420,7 @@ pit_value pit_intern(pit_runtime *rt, u8 *nm, i64 len) {
     return pit_symbol_new(rt, idx);
 }
 pit_value pit_intern_cstr(pit_runtime *rt, char *nm) {
-    return pit_intern(rt, (u8 *) nm, (i64) strlen(nm));
+    return pit_intern(rt, (u8 *) nm, (i64) pit_string_strlen(nm));
 }
 pit_value pit_symbol_name(pit_runtime *rt, pit_value sym) {
     pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
@@ -478,7 +433,7 @@ bool pit_symbol_name_match(pit_runtime *rt, pit_value sym, u8 *buf, i64 len) {
     return pit_bytes_match(rt, ent->name, buf, len);
 }
 bool pit_symbol_name_match_cstr(pit_runtime *rt, pit_value sym, char *s) {
-    return pit_symbol_name_match(rt, sym, (u8 *) s, (i64) strlen(s));
+    return pit_symbol_name_match(rt, sym, (u8 *) s, (i64) pit_string_strlen(s));
 }
 pit_symtab_entry *pit_symtab_lookup(pit_runtime *rt, pit_value sym) {
     pit_symbol s = pit_as_symbol(rt, sym);
@@ -624,7 +579,7 @@ pit_value pit_array_from_buf(pit_runtime *rt, pit_value *xs, i64 len) {
     pit_value ret = pit_array_new(rt, len);
     pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, ret));
     if (!h) { pit_error(rt, "failed to deref heavy value for array"); return PIT_NIL; }
-    memcpy(h->in.array.data, xs, (size_t) len * (size_t) sizeof(pit_value));
+    pit_string_memcpy((u8 *) h->in.array.data, (u8 *) xs, (size_t) len * (size_t) sizeof(pit_value));
     return ret;
 }
 i64 pit_array_len(pit_runtime *rt, pit_value arr) {
@@ -944,9 +899,14 @@ void *pit_nativedata_get(pit_runtime *rt, pit_value tag, pit_value v) {
     return h->in.nativedata.data;
 }
 
-pit_values *pit_values_new(i64 capacity) {
-    i64 cap = capacity / (i64) sizeof(pit_value);
-    pit_values *ret = malloc(sizeof(*ret) + (size_t) cap * sizeof(pit_value));
+pit_values *pit_values_new(u8 *buf, i64 buf_len) {
+    uintptr_t base = (uintptr_t) buf;
+    uintptr_t aligned = pit_align_up(base, sizeof(void *));
+    pit_values *ret = (pit_values *) aligned;
+    uintptr_t data = aligned + sizeof(pit_values);
+    i64 offset = (i64) data - (i64) base;
+    i64 remaining = (i64) (buf_len - offset);
+    i64 cap = remaining / (i64) sizeof(pit_value);
     ret->next = 0;
     ret->capacity = cap;
     return ret;
@@ -961,9 +921,14 @@ pit_value pit_values_pop(pit_runtime *rt, pit_values *s) {
     return s->data[--s->next];
 }
 
-pit_runtime_eval_program *pit_runtime_eval_program_new(i64 capacity) {
-    i64 cap = capacity / (i64) sizeof(pit_runtime_eval_program_entry);
-    pit_runtime_eval_program *ret = malloc(sizeof(*ret) + (size_t) cap * sizeof(pit_runtime_eval_program_entry));
+pit_runtime_eval_program *pit_runtime_eval_program_new(u8 *buf, i64 buf_len) {
+    uintptr_t base = (uintptr_t) buf;
+    uintptr_t aligned = pit_align_up(base, sizeof(void *));
+    pit_runtime_eval_program *ret = (pit_runtime_eval_program *) aligned;
+    uintptr_t data = aligned + sizeof(pit_arena);
+    i64 offset = (i64) data - (i64) base;
+    i64 remaining = (i64) (buf_len - offset);
+    i64 cap = remaining / (i64) sizeof(pit_runtime_eval_program_entry);
     ret->next = 0;
     ret->capacity = cap;
     return ret;
@@ -1240,93 +1205,18 @@ void pit_collect_garbage(pit_runtime *rt) {
     rt->backbuffer = fromspace;
 }
 
-static void check_invariants(pit_runtime *rt) {
-    if (rt->scratch->next != 0) {
-        pit_error(rt, "leaked scratch memory! %ld", rt->scratch->next);
-    }
-    if (rt->scratch->next != 0) {
-        pit_error(rt, "leaked scratch memory! %ld", rt->scratch->next);
-    }
-}
-
-pit_value pit_load_file(pit_runtime *rt, char *path) {
+int pit_runtime_test(u8 *out, i64 out_len, u8 *buf, i64 len) {
+    pit_runtime *rt = pit_runtime_new(buf, len);
+    pit_install_library_essential(rt);
+    pit_install_library_plist(rt);
+    pit_install_library_alist(rt);
     pit_lexer lex;
     pit_parser parse;
-    bool eof = false;
-    pit_value p = PIT_NIL;
-    pit_value ret = PIT_NIL;
-    if (pit_lex_file(&lex, path) < 0) {
-        pit_error(rt, "failed to lex file: %s", path);
-        return PIT_NIL;
-    }
+    pit_lex_cstr(&lex, "(cons (list 1 2 3) (cons '(a b c) 21))");
     pit_parser_from_lexer(&parse, &lex);
-    while (p = pit_parse(rt, &parse, &eof), !eof) {
-        check_invariants(rt); if (pit_runtime_print_error(rt)) return PIT_NIL;
-        ret = pit_eval(rt, p);
-        check_invariants(rt); if (pit_runtime_print_error(rt)) return PIT_NIL;
-        pit_collect_garbage(rt);
-        check_invariants(rt); if (pit_runtime_print_error(rt)) return PIT_NIL;
-    }
-    check_invariants(rt); if (pit_runtime_print_error(rt)) return PIT_NIL;
-    fprintf(stderr, "value allocs at exit: %ld\n", rt->heap->next);
-    return ret;
-}
-
-void pit_repl(pit_runtime *rt) {
-    size_t bufcap = 8;
-    char *buf = malloc(bufcap);
-    i64 len = 0;
-    pit_runtime_freeze(rt);
-    check_invariants(rt); if (pit_runtime_print_error(rt)) exit(1);
-    setbuf(stdout, NULL);
-    printf("> ");
-    while ((buf[len++] = (char) getchar()) != EOF) {
-        if (len >= (i64) bufcap) {
-            bufcap *= 2;
-            buf = realloc(buf, bufcap);
-        }
-        pit_value res;
-        pit_lexer lex;
-        pit_parser parse;
-        bool eof = false;
-        pit_value p = PIT_NIL;
-        i64 depth = 0;
-        bool lex_error = false;
-        pit_lex_token tok = PIT_LEX_TOKEN_EOF;
-        if (buf[len - 1] != '\n') continue;
-        pit_lex_bytes(&lex, buf, len);
-        while (!lex_error && (tok = pit_lex_next(&lex)) != PIT_LEX_TOKEN_EOF) {
-            switch (tok) {
-            case PIT_LEX_TOKEN_ERROR: lex_error = true; break;
-            case PIT_LEX_TOKEN_LPAREN: depth += 1; break;
-            case PIT_LEX_TOKEN_RPAREN: depth -= 1; break;
-            default: break;
-            }
-        }
-        if (lex_error || depth > 0) continue;
-        buf[len - 1] = 0;
-        pit_lex_bytes(&lex, buf, len);
-        pit_parser_from_lexer(&parse, &lex);
-        while (p = pit_parse(rt, &parse, &eof), !eof) {
-            check_invariants(rt);
-            res = pit_eval(rt, p);
-            check_invariants(rt);
-        }
-        if (pit_runtime_print_error(rt)) {
-            rt->error = PIT_NIL;
-            printf("> ");
-        } else {
-            char dumpbuf[1024] = {0};
-            pit_dump(rt, dumpbuf, sizeof(dumpbuf) - 1, res, true);
-            pit_collect_garbage(rt);
-            printf("%s\n> ", dumpbuf);
-        }
-        len = 0;
-    }
-    if (len >= (i64) sizeof(buf)) {
-        fprintf(stderr, "expression exceeded REPL buffer size\n");
-    } else {
-        printf("bye!\n");
-    }
-    free(buf);
+    bool eof = false;
+    pit_value p = pit_parse(rt, &parse, &eof);
+    pit_value res = pit_eval(rt, p);
+    pit_dump(rt, (char *) out, out_len, res, false);
+    return 0;
 }

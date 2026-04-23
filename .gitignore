@@ -1,4 +1,4 @@
-/build_gcc/
+/build_*/
 /.direnv/
 /pit
 /*.a

@@ -21,9 +21,9 @@ bindir ?= $(exec_prefix)/bin
 includedir ?= $(prefix)/include
 libdir ?= $(exec_prefix)/lib
 
-.PHONY: all clean install check-syntax
+.PHONY: all clean install install-bin install-headers install-core install-native check-syntax
 
-all: $(EXE) $(LIB) $(LIB_NATIVE)
+all: $(EXE) $(LIB_CORE) $(LIB_NATIVE)
 
 $(EXE): $(BUILD)/main.o $(LIB_NATIVE) $(LIB_CORE)
 	$(CC) -o $@ $^ $(LDFLAGS)
@@ -42,17 +42,30 @@ $(BUILD)/%.o: src/%.c | $(BUILD)
 
 clean:
 	-rm $(EXE)
-	-rm $(LIB)
+	-rm $(LIB_CORE)
+	-rm $(LIB_NATIVE)
 	-rm -r $(BUILD)/
 
 TAGS: $(SRCS)
 	ctags --output-format=etags $^
 
-install: $(EXE) $(LIB)
+install: install-bin install-headers install-core install-native
+
+install-bin: $(EXE)
 	mkdir -p $(DESTDIR)$(bindir) $(DESTDIR)$(libdir) $(DESTDIR)$(includedir)
 	install $(EXE) $(DESTDIR)$(bindir)/$(EXE)
-	install $(LIB) $(DESTDIR)$(libdir)/$(LIB)
+
+install-headers:
+	mkdir -p $(DESTDIR)$(bindir) $(DESTDIR)$(libdir) $(DESTDIR)$(includedir)
 	cp -r include/* $(DESTDIR)$(includedir)
+
+install-core: $(LIB_CORE)
+	mkdir -p $(DESTDIR)$(bindir) $(DESTDIR)$(libdir) $(DESTDIR)$(includedir)
+	install $(LIB_CORE) $(DESTDIR)$(libdir)/$(LIB_CORE)
+
+install-native: $(LIB_NATIVE)
+	mkdir -p $(DESTDIR)$(bindir) $(DESTDIR)$(libdir) $(DESTDIR)$(includedir)
+	install $(LIB_NATIVE) $(DESTDIR)$(libdir)/$(LIB_NATIVE)
 
 check-syntax: TAGS
 	gcc $(CFLAGS) -fsyntax-only $(CHK_SOURCES)

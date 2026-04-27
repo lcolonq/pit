@@ -34,11 +34,24 @@
               make CC=wasm32-clang prefix=$out install-core
             '';
           };
+          pit-windows = pkgs.pkgsCross.mingwW64.stdenv.mkDerivation {
+            pname = "pit";
+            version = "git";
+            src = ./.;
+            hardeningDisable = ["all"];
+            buildPhase = ''
+              make CC=x86_64-w64-mingw32-cc AR=x86_64-w64-mingw32-ar EXE=pit.exe
+            '';
+            installPhase = ''
+              make CC=x86_64-w64-mingw32-cc AR=x86_64-w64-mingw32-ar EXE=pit.exe prefix=$out install
+            '';
+          };
         in {
           packages = {
             inherit pit;
             default = pit;
             wasm = pit-wasm;
+            windows = pit-windows;
           };
           devShells.default = pkgs.mkShell {
             hardeningDisable = ["all"];

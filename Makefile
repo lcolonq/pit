@@ -1,3 +1,5 @@
+EXE ?= pit
+
 CC ?= gcc
 AR ?= ar
 CHK_SOURCES ?= src/main.c $(SRCS)
@@ -13,7 +15,6 @@ LIB_CORE := libcolonq-pit.a
 SRCS_NATIVE := src/native.c
 OBJECTS_NATIVE := $(SRCS_NATIVE:src/%.c=$(BUILD)/%.o)
 LIB_NATIVE := libcolonq-pit-native.a
-EXE := pit
 
 prefix ?= /usr/local
 exec_prefix ?= $(prefix)
@@ -29,10 +30,10 @@ $(EXE): $(BUILD)/main.o $(LIB_NATIVE) $(LIB_CORE)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 $(LIB_CORE): $(OBJECTS_CORE)
-	ar rcs $@ $^
+	$(AR) rcs $@ $^
 
 $(LIB_NATIVE): $(OBJECTS_NATIVE)
-	ar rcs $@ $^
+	$(AR) rcs $@ $^
 
 $(BUILD):
 	mkdir $(BUILD)/

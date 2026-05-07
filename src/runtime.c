@@ -155,6 +155,10 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
     return 0;
 }
 
+pit_value pit_get_error(pit_runtime *rt) {
+    return rt->error;
+}
+
 void pit_error(pit_runtime *rt, char *format, ...) {
     if (rt->error == PIT_NIL) { /* only record the first error encountered */
         char buf[1024] = {0};

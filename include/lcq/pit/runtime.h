@@ -110,6 +110,7 @@ bool pit_runtime_print_error(pit_runtime *rt); /* return true if an error has oc
 i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable); /* if readable is true, try to produce output that can be machine-read (quotes on strings, etc) */
 #define pit_trace(rt, v) pit_trace_(rt, "Trace [" __FILE__ ":" PIT_STR(__LINE__) "] %s\n", v)
 void pit_trace_(pit_runtime *rt, char *format, pit_value v);
+pit_value pit_get_error(pit_runtime *rt);
 void pit_error(pit_runtime *rt, char *format, ...);
 
 /* working with small values */

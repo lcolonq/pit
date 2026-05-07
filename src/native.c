@@ -157,12 +157,14 @@ void pit_repl(pit_runtime *rt) {
     free(buf);
 }
 
-static pit_value impl_diagnostics(pit_runtime *rt, pit_value args) {
+static pit_value impl_diagnostics(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     (void) args;
     fprintf(stderr, "value allocs: %ld\n", rt->heap->next);
     return PIT_NIL;
 }
-static pit_value impl_print(pit_runtime *rt, pit_value args) {
+static pit_value impl_print(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value x = pit_car(rt, args);
     char buf[1024] = {0};
     pit_dump(rt, buf, sizeof(buf), x, true);
@@ -170,7 +172,8 @@ static pit_value impl_print(pit_runtime *rt, pit_value args) {
     puts(buf);
     return x;
 }
-static pit_value impl_princ(pit_runtime *rt, pit_value args) {
+static pit_value impl_princ(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value x = pit_car(rt, args);
     char buf[1024] = {0};
     pit_dump(rt, buf, sizeof(buf), x, false);
@@ -178,7 +181,8 @@ static pit_value impl_princ(pit_runtime *rt, pit_value args) {
     puts(buf);
     return x;
 }
-static pit_value impl_load(pit_runtime *rt, pit_value args) {
+static pit_value impl_load(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value path = pit_car(rt, args);
     char pathbuf[1024] = {0};
     i64 len = pit_as_bytes(rt, path, (u8 *) pathbuf, sizeof(pathbuf) - 1);
@@ -200,7 +204,8 @@ struct bytestring {
     i64 len, cap;
     u8 *data;
 };
-static pit_value impl_bs_new(pit_runtime *rt, pit_value args) {
+static pit_value impl_bs_new(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     (void) args;
     i64 cap = 256;
     struct bytestring *bs = malloc(sizeof(struct bytestring));
@@ -209,7 +214,8 @@ static pit_value impl_bs_new(pit_runtime *rt, pit_value args) {
     bs->data = calloc((size_t) cap, 1);
     return pit_nativedata_new(rt, pit_intern_cstr(rt, "bs"), (void *) bs);
 }
-static pit_value impl_bs_delete(pit_runtime *rt, pit_value args) {
+static pit_value impl_bs_delete(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value v = pit_car(rt, args);
     pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, v));
     if (!h) { pit_error(rt, "bad ref"); return PIT_NIL; }
@@ -232,7 +238,8 @@ static pit_value impl_bs_delete(pit_runtime *rt, pit_value args) {
     h->in.nativedata.data = NULL;
     return PIT_T;
 }
-static pit_value impl_bs_grow(pit_runtime *rt, pit_value args) {
+static pit_value impl_bs_grow(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value vsz = pit_car(rt, args);
     pit_value v = pit_car(rt, pit_cdr(rt, args));
     struct bytestring *bs = pit_nativedata_get(rt, pit_intern_cstr(rt, "bs"), v);
@@ -247,7 +254,8 @@ static pit_value impl_bs_grow(pit_runtime *rt, pit_value args) {
     }
     return v;
 }
-static pit_value impl_bs_spit(pit_runtime *rt, pit_value args) {
+static pit_value impl_bs_spit(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value path = pit_car(rt, args);
     char pathbuf[1024] = {0};
     i64 len = pit_as_bytes(rt, path, (u8 *) pathbuf, sizeof(pathbuf) - 1);
@@ -266,7 +274,8 @@ static pit_value impl_bs_spit(pit_runtime *rt, pit_value args) {
     }
     return v;
 }
-static pit_value impl_bs_write8(pit_runtime *rt, pit_value args) {
+static pit_value impl_bs_write8(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value v = pit_car(rt, args);
     pit_value vidx = pit_car(rt, pit_cdr(rt, args));
     pit_value vx = pit_car(rt, pit_cdr(rt, pit_cdr(rt, args)));

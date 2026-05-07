@@ -31,7 +31,7 @@ pit_values *pit_values_new(u8 *buf, i64 buf_len);
 void pit_values_push(struct pit_runtime *rt, pit_values *s, pit_value x);
 pit_value pit_values_pop(struct pit_runtime *rt, pit_values *s);
 
-typedef pit_value (*pit_nativefunc)(struct pit_runtime *rt, pit_value args);
+typedef pit_value (*pit_nativefunc)(struct pit_runtime *rt, pit_value args, void *data);
 typedef struct { /* "heavy" values, the targets of refs */
     enum pit_value_heavy_sort {
         PIT_VALUE_HEAVY_SORT_CELL=0, /* value cell - basically, a "location" referred to by a variable binding */
@@ -49,7 +49,7 @@ typedef struct { /* "heavy" values, the targets of refs */
         struct { pit_value *data; i64 len; } array;
         struct { u8 *data; i64 len; } bytes;
         struct { pit_value env; pit_value args; pit_value arg_rest_nm; pit_value body; } func;
-        pit_nativefunc nativefunc;
+        struct { pit_nativefunc f; void *data; } nativefunc;
         struct { pit_value tag; void *data; } nativedata;
         i64 forwarding_pointer;
     } in;
@@ -203,6 +203,7 @@ pit_value pit_plist_get(pit_runtime *rt, pit_value k, pit_value vs);
 /* working with functions */
 pit_value pit_free_vars(pit_runtime *rt, pit_value args, pit_value body);
 pit_value pit_lambda(pit_runtime *rt, pit_value args, pit_value body);
+pit_value pit_nativefunc_new_with_data(pit_runtime *rt, pit_nativefunc f, void *data);
 pit_value pit_nativefunc_new(pit_runtime *rt, pit_nativefunc f);
 pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args);
 

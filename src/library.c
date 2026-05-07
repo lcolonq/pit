@@ -3,11 +3,13 @@
 #include <lcq/pit/runtime.h>
 #include <lcq/pit/library.h>
 
-static pit_value impl_sf_quote(pit_runtime *rt, pit_value args) {
+static pit_value impl_sf_quote(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_runtime_eval_program_push_literal(rt, rt->program, pit_car(rt, args));
     return PIT_NIL;
 }
-static pit_value impl_sf_if(pit_runtime *rt, pit_value args) {
+static pit_value impl_sf_if(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value c = pit_car(rt, args);
     if (pit_eval(rt, c) != PIT_NIL) {
         pit_values_push(rt, rt->expr_stack, pit_car(rt, pit_cdr(rt, args)));
@@ -16,7 +18,8 @@ static pit_value impl_sf_if(pit_runtime *rt, pit_value args) {
     }
     return PIT_NIL;
 }
-static pit_value impl_sf_cond(pit_runtime *rt, pit_value args) {
+static pit_value impl_sf_cond(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     while (args != PIT_NIL) {
         pit_value clause = pit_car(rt, args);
         pit_value cond = pit_car(rt, clause);
@@ -31,7 +34,8 @@ static pit_value impl_sf_cond(pit_runtime *rt, pit_value args) {
     pit_values_push(rt, rt->expr_stack, PIT_NIL);
     return PIT_NIL;
 }
-static pit_value impl_sf_progn(pit_runtime *rt, pit_value args) {
+static pit_value impl_sf_progn(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value bodyforms = args;
     pit_value final = PIT_NIL;
     while (bodyforms != PIT_NIL) {
@@ -41,7 +45,8 @@ static pit_value impl_sf_progn(pit_runtime *rt, pit_value args) {
     pit_runtime_eval_program_push_literal(rt, rt->program, final);
     return PIT_NIL;
 }
-static pit_value impl_sf_or(pit_runtime *rt, pit_value args) {
+static pit_value impl_sf_or(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value bodyforms = args;
     pit_value final = PIT_NIL;
     while (bodyforms != PIT_NIL) {
@@ -52,13 +57,15 @@ static pit_value impl_sf_or(pit_runtime *rt, pit_value args) {
     pit_runtime_eval_program_push_literal(rt, rt->program, final);
     return PIT_NIL;
 }
-static pit_value impl_sf_lambda(pit_runtime *rt, pit_value args) {
+static pit_value impl_sf_lambda(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value as = pit_car(rt, args);
     pit_value body = pit_cdr(rt, args);
     pit_runtime_eval_program_push_literal(rt, rt->program, pit_lambda(rt, as, body));
     return PIT_NIL;
 }
-static pit_value impl_m_defun(pit_runtime *rt, pit_value args) {
+static pit_value impl_m_defun(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value nm = pit_car(rt, args);
     pit_value as = pit_car(rt, pit_cdr(rt, args));
     pit_value body = pit_cdr(rt, pit_cdr(rt, args));
@@ -68,7 +75,8 @@ static pit_value impl_m_defun(pit_runtime *rt, pit_value args) {
         pit_cons(rt, pit_intern_cstr(rt, "lambda"), pit_cons(rt, as, body))
     );
 }
-static pit_value impl_m_defmacro(pit_runtime *rt, pit_value args) {
+static pit_value impl_m_defmacro(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value nm = pit_car(rt, args);
     return pit_list(rt, 3,
         pit_intern_cstr(rt, "progn"),
@@ -76,7 +84,8 @@ static pit_value impl_m_defmacro(pit_runtime *rt, pit_value args) {
         pit_list(rt, 2, pit_intern_cstr(rt, "set-symbol-macro!"), nm)
     );
 }
-static pit_value impl_m_defstruct(pit_runtime *rt, pit_value args) {
+static pit_value impl_m_defstruct(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value ret = PIT_NIL;
     pit_value df = PIT_NIL;
     pit_value aargs = PIT_NIL;
@@ -162,7 +171,8 @@ static pit_value impl_m_defstruct(pit_runtime *rt, pit_value args) {
     // pit_trace(rt, ret);
     return pit_cons(rt, pit_intern_cstr(rt, "progn"), ret);
 }
-static pit_value impl_m_let(pit_runtime *rt, pit_value args) {
+static pit_value impl_m_let(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value lparams = PIT_NIL;
     pit_value largs = PIT_NIL;
     pit_value binds = pit_car(rt, args);
@@ -180,7 +190,8 @@ static pit_value impl_m_let(pit_runtime *rt, pit_value args) {
     application = pit_cons(rt, lambda, largs);
     return application;
 }
-static pit_value impl_m_and(pit_runtime *rt, pit_value args) {
+static pit_value impl_m_and(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value ret = PIT_NIL;
     args = pit_reverse(rt, args);
     if (args != PIT_NIL) {
@@ -193,7 +204,8 @@ static pit_value impl_m_and(pit_runtime *rt, pit_value args) {
     }
     return ret;
 }
-static pit_value impl_m_setq(pit_runtime *rt, pit_value args) {
+static pit_value impl_m_setq(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value sym = pit_car(rt, args);
     pit_value v = pit_car(rt, pit_cdr(rt, args));
     return pit_list(rt, 3,
@@ -205,7 +217,8 @@ static pit_value impl_m_setq(pit_runtime *rt, pit_value args) {
 
 // (case x (y 'foo) (z 'bar))
 // (cond ((eq x 'y) 'foo) ((eq x 'z) 'bar))
-static pit_value impl_m_case(pit_runtime *rt, pit_value args) {
+static pit_value impl_m_case(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value x = pit_car(rt, args);
     pit_value cases = pit_cdr(rt, args);
     pit_value clauses = PIT_NIL;
@@ -230,101 +243,124 @@ static pit_value impl_m_case(pit_runtime *rt, pit_value args) {
         pit_cons(rt, pit_intern_cstr(rt, "cond"), pit_reverse(rt, clauses))
     );
 }
-static pit_value impl_set(pit_runtime *rt, pit_value args) {
+static pit_value impl_set(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value sym = pit_car(rt, args);
     pit_value v = pit_car(rt, pit_cdr(rt, args));
     pit_set(rt, sym, v);
     return v;
 }
-static pit_value impl_fset(pit_runtime *rt, pit_value args) {
+static pit_value impl_fset(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value sym = pit_car(rt, args);
     pit_value v = pit_car(rt, pit_cdr(rt, args));
     pit_fset(rt, sym, v);
     return v;
 }
-static pit_value impl_symbol_is_macro(pit_runtime *rt, pit_value args) {
+static pit_value impl_symbol_is_macro(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value sym = pit_car(rt, args);
     pit_symbol_is_macro(rt, sym);
     return PIT_NIL;
 }
-static pit_value impl_funcall(pit_runtime *rt, pit_value args) {
+static pit_value impl_funcall(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value f = pit_car(rt, args);
     return pit_apply(rt, f, pit_cdr(rt, args));
 }
-static pit_value impl_apply(pit_runtime *rt, pit_value args) {
+static pit_value impl_apply(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value f = pit_car(rt, args);
     pit_value xs = pit_car(rt, pit_cdr(rt, args));
     return pit_apply(rt, f, xs);
 }
-static pit_value impl_error(pit_runtime *rt, pit_value args) {
+static pit_value impl_error(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     rt->error = PIT_T;
     rt->error = pit_car(rt, args);
     rt->error_line = rt->source_line;
     rt->error_column = rt->source_column;
     return PIT_NIL;
 }
-static pit_value impl_eval(pit_runtime *rt, pit_value args) {
+static pit_value impl_eval(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     return pit_eval(rt, pit_car(rt, args));
 }
-static pit_value impl_eq_p(pit_runtime *rt, pit_value args) {
+static pit_value impl_eq_p(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value x = pit_car(rt, args);
     pit_value y = pit_car(rt, pit_cdr(rt, args));
     return pit_bool_new(rt, pit_eq(x, y));
 }
-static pit_value impl_equal_p(pit_runtime *rt, pit_value args) {
+static pit_value impl_equal_p(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value x = pit_car(rt, args);
     pit_value y = pit_car(rt, pit_cdr(rt, args));
     return pit_bool_new(rt, pit_equal(rt, x, y));
 }
-static pit_value impl_integer_p(pit_runtime *rt, pit_value args) {
+static pit_value impl_integer_p(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     return pit_bool_new(rt, pit_is_integer(rt, pit_car(rt, args)));
 }
-static pit_value impl_double_p(pit_runtime *rt, pit_value args) {
+static pit_value impl_double_p(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     return pit_bool_new(rt, pit_is_double(rt, pit_car(rt, args)));
 }
-static pit_value impl_symbol_p(pit_runtime *rt, pit_value args) {
+static pit_value impl_symbol_p(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     return pit_bool_new(rt, pit_is_symbol(rt, pit_car(rt, args)));
 }
-static pit_value impl_cons_p(pit_runtime *rt, pit_value args) {
+static pit_value impl_cons_p(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     return pit_bool_new(rt, pit_is_cons(rt, pit_car(rt, args)));
 }
-static pit_value impl_array_p(pit_runtime *rt, pit_value args) {
+static pit_value impl_array_p(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     return pit_bool_new(rt, pit_is_array(rt, pit_car(rt, args)));
 }
-static pit_value impl_bytes_p(pit_runtime *rt, pit_value args) {
+static pit_value impl_bytes_p(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     return pit_bool_new(rt, pit_is_bytes(rt, pit_car(rt, args)));
 }
-static pit_value impl_function_p(pit_runtime *rt, pit_value args) {
+static pit_value impl_function_p(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value a = pit_car(rt, args);
     bool b = (pit_is_symbol(rt, a) && pit_fget(rt, a) != PIT_NIL)
         || pit_is_func(rt, a)
         || pit_is_nativefunc(rt, a);
     return pit_bool_new(rt, b);
 }
-static pit_value impl_cons(pit_runtime *rt, pit_value args) {
+static pit_value impl_cons(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     return pit_cons(rt, pit_car(rt, args), pit_car(rt, pit_cdr(rt, args)));
 }
-static pit_value impl_car(pit_runtime *rt, pit_value args) {
+static pit_value impl_car(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     return pit_car(rt, pit_car(rt, args));
 }
-static pit_value impl_cdr(pit_runtime *rt, pit_value args) {
+static pit_value impl_cdr(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     return pit_cdr(rt, pit_car(rt, args));
 }
-static pit_value impl_setcar(pit_runtime *rt, pit_value args) {
+static pit_value impl_setcar(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value v = pit_car(rt, pit_cdr(rt, args));
     pit_setcar(rt, pit_car(rt, args), v);
     return v;
 }
-static pit_value impl_setcdr(pit_runtime *rt, pit_value args) {
+static pit_value impl_setcdr(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value v = pit_car(rt, pit_cdr(rt, args));
     pit_setcdr(rt, pit_car(rt, args), v);
     return v;
 }
-static pit_value impl_list(pit_runtime *rt, pit_value args) {
+static pit_value impl_list(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     (void) rt;
     return args;
 }
-static pit_value impl_list_nth(pit_runtime *rt, pit_value args) {
+static pit_value impl_list_nth(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 n = pit_as_integer(rt, pit_car(rt, args));
     pit_value xs = pit_car(rt, pit_cdr(rt, args));
     while (xs != PIT_NIL && n-- > 0) {
@@ -332,7 +368,8 @@ static pit_value impl_list_nth(pit_runtime *rt, pit_value args) {
     }
     return pit_car(rt, xs);
 }
-static pit_value impl_list_iota(pit_runtime *rt, pit_value args) {
+static pit_value impl_list_iota(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 n = pit_as_integer(rt, pit_car(rt, args));
     pit_value ret = PIT_NIL;
     while (n > 0) {
@@ -340,14 +377,17 @@ static pit_value impl_list_iota(pit_runtime *rt, pit_value args) {
     }
     return ret;
 }
-static pit_value impl_list_len(pit_runtime *rt, pit_value args) {
+static pit_value impl_list_len(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value arr = pit_car(rt, args);
     return pit_integer_new(rt, pit_list_len(rt, arr));
 }
-static pit_value impl_list_reverse(pit_runtime *rt, pit_value args) {
+static pit_value impl_list_reverse(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     return pit_reverse(rt, pit_car(rt, args));
 }
-static pit_value impl_list_uniq(pit_runtime *rt, pit_value args) {
+static pit_value impl_list_uniq(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value xs = pit_car(rt, args);
     pit_value ret = PIT_NIL;
     while (xs != PIT_NIL) {
@@ -359,7 +399,8 @@ static pit_value impl_list_uniq(pit_runtime *rt, pit_value args) {
     }
     return pit_reverse(rt, ret);
 }
-static pit_value impl_list_append(pit_runtime *rt, pit_value args) {
+static pit_value impl_list_append(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     args = pit_reverse(rt, args);
     pit_value ret = pit_car(rt, args);
     pit_value ls = pit_cdr(rt, args);
@@ -373,10 +414,12 @@ static pit_value impl_list_append(pit_runtime *rt, pit_value args) {
     }
     return ret;
 }
-static pit_value impl_list_concat(pit_runtime *rt, pit_value args) {
-    return impl_list_append(rt, pit_car(rt, args));
+static pit_value impl_list_concat(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
+    return impl_list_append(rt, pit_car(rt, args), NULL);
 }
-static pit_value impl_list_take(pit_runtime *rt, pit_value args) {
+static pit_value impl_list_take(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 num = pit_as_integer(rt, pit_car(rt, args));
     pit_value arr = pit_car(rt, pit_cdr(rt, args));
     pit_value ret = PIT_NIL;
@@ -387,7 +430,8 @@ static pit_value impl_list_take(pit_runtime *rt, pit_value args) {
     }
     return pit_reverse(rt, ret);
 }
-static pit_value impl_list_drop(pit_runtime *rt, pit_value args) {
+static pit_value impl_list_drop(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 num = pit_as_integer(rt, pit_car(rt, args));
     pit_value arr = pit_car(rt, pit_cdr(rt, args));
     while (num > 0 && arr != PIT_NIL) {
@@ -396,7 +440,8 @@ static pit_value impl_list_drop(pit_runtime *rt, pit_value args) {
     }
     return arr;
 }
-static pit_value impl_list_map(pit_runtime *rt, pit_value args) {
+static pit_value impl_list_map(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value func = pit_car(rt, args);
     pit_value xs = pit_car(rt, pit_cdr(rt, args));
     pit_value ret = PIT_NIL;
@@ -407,7 +452,8 @@ static pit_value impl_list_map(pit_runtime *rt, pit_value args) {
     }
     return pit_reverse(rt, ret);
 }
-static pit_value impl_list_foldl(pit_runtime *rt, pit_value args) {
+static pit_value impl_list_foldl(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value func = pit_car(rt, args);
     pit_value acc = pit_car(rt, pit_cdr(rt, args));
     pit_value xs = pit_car(rt, pit_cdr(rt, pit_cdr(rt, args)));
@@ -417,7 +463,8 @@ static pit_value impl_list_foldl(pit_runtime *rt, pit_value args) {
     }
     return acc;
 }
-static pit_value impl_list_filter(pit_runtime *rt, pit_value args) {
+static pit_value impl_list_filter(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value func = pit_car(rt, args);
     pit_value xs = pit_car(rt, pit_cdr(rt, args));
     pit_value ret = PIT_NIL;
@@ -431,7 +478,8 @@ static pit_value impl_list_filter(pit_runtime *rt, pit_value args) {
     }
     return pit_reverse(rt, ret);
 }
-static pit_value impl_list_find(pit_runtime *rt, pit_value args) {
+static pit_value impl_list_find(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value func = pit_car(rt, args);
     pit_value xs = pit_car(rt, pit_cdr(rt, args));
     while (xs != PIT_NIL) {
@@ -444,7 +492,8 @@ static pit_value impl_list_find(pit_runtime *rt, pit_value args) {
     }
     return PIT_NIL;
 }
-static pit_value impl_list_contains_p(pit_runtime *rt, pit_value args) {
+static pit_value impl_list_contains_p(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value needle = pit_car(rt, args);
     pit_value haystack = pit_car(rt, pit_cdr(rt, args));
     while (haystack != PIT_NIL) {
@@ -453,7 +502,8 @@ static pit_value impl_list_contains_p(pit_runtime *rt, pit_value args) {
     }
     return PIT_NIL;
 }
-static pit_value impl_list_all_p(pit_runtime *rt, pit_value args) {
+static pit_value impl_list_all_p(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value f = pit_car(rt, args);
     pit_value xs = pit_car(rt, pit_cdr(rt, args));
     while (xs != PIT_NIL) {
@@ -465,7 +515,8 @@ static pit_value impl_list_all_p(pit_runtime *rt, pit_value args) {
     }
     return PIT_T;
 }
-static pit_value impl_list_zip_with(pit_runtime *rt, pit_value args) {
+static pit_value impl_list_zip_with(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value f = pit_car(rt, args);
     pit_value xs = pit_car(rt, pit_cdr(rt, args));
     pit_value ys = pit_car(rt, pit_cdr(rt, pit_cdr(rt, args)));
@@ -477,7 +528,8 @@ static pit_value impl_list_zip_with(pit_runtime *rt, pit_value args) {
     }
     return pit_reverse(rt, ret);
 }
-static pit_value impl_bytes_len(pit_runtime *rt, pit_value args) {
+static pit_value impl_bytes_len(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value v = pit_car(rt, args);
     if (pit_value_sort(v) != PIT_VALUE_SORT_REF) {
         pit_error(rt, "value is not a ref");
@@ -488,7 +540,8 @@ static pit_value impl_bytes_len(pit_runtime *rt, pit_value args) {
     if (h->hsort != PIT_VALUE_HEAVY_SORT_BYTES) { pit_error(rt, "ref is not bytes"); return PIT_NIL; }
     return pit_integer_new(rt, h->in.bytes.len);
 }
-static pit_value impl_bytes_range(pit_runtime *rt, pit_value args) {
+static pit_value impl_bytes_range(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 start = pit_as_integer(rt, pit_car(rt, args));
     i64 end = pit_as_integer(rt, pit_car(rt, pit_cdr(rt, args)));
     pit_value v = pit_car(rt, pit_cdr(rt, pit_cdr(rt, args)));
@@ -509,7 +562,8 @@ static pit_value impl_bytes_range(pit_runtime *rt, pit_value args) {
     }
     return pit_bytes_new(rt, h->in.bytes.data + start, end - start);
 }
-static pit_value impl_array(pit_runtime *rt, pit_value args) {
+static pit_value impl_array(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 scratch_reset = rt->scratch->next;
     i64 len = 0;
     while (args != PIT_NIL) {
@@ -521,7 +575,8 @@ static pit_value impl_array(pit_runtime *rt, pit_value args) {
     rt->scratch->next = scratch_reset;
     return pit_array_from_buf(rt, pit_arena_get(rt->scratch, (i32) scratch_reset), len);
 }
-static pit_value impl_array_to_list(pit_runtime *rt, pit_value args) {
+static pit_value impl_array_to_list(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value arr = pit_car(rt, args);
     i64 ilen = pit_array_len(rt, arr);
     pit_value ret = PIT_NIL;
@@ -531,7 +586,8 @@ static pit_value impl_array_to_list(pit_runtime *rt, pit_value args) {
     }
     return pit_reverse(rt, ret);
 }
-static pit_value impl_array_from_list(pit_runtime *rt, pit_value args) {
+static pit_value impl_array_from_list(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 i = 0;
     pit_value xs = pit_car(rt, args);
     i64 ilen = pit_list_len(rt, xs);
@@ -545,7 +601,8 @@ static pit_value impl_array_from_list(pit_runtime *rt, pit_value args) {
     }
     return ret;
 }
-static pit_value impl_array_repeat(pit_runtime *rt, pit_value args) {
+static pit_value impl_array_repeat(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 i = 0;
     pit_value v = pit_car(rt, args);
     pit_value len = pit_car(rt, pit_cdr(rt, args));
@@ -558,22 +615,26 @@ static pit_value impl_array_repeat(pit_runtime *rt, pit_value args) {
     }
     return ret;
 }
-static pit_value impl_array_len(pit_runtime *rt, pit_value args) {
+static pit_value impl_array_len(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value arr = pit_car(rt, args);
     return pit_integer_new(rt, pit_array_len(rt, arr));
 }
-static pit_value impl_array_get(pit_runtime *rt, pit_value args) {
+static pit_value impl_array_get(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value idx = pit_car(rt, args);
     pit_value arr = pit_car(rt, pit_cdr(rt, args));
     return pit_array_get(rt, arr, pit_as_integer(rt, idx));
 }
-static pit_value impl_array_set(pit_runtime *rt, pit_value args) {
+static pit_value impl_array_set(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value idx = pit_car(rt, args);
     pit_value v = pit_car(rt, pit_cdr(rt, args));
     pit_value arr = pit_car(rt, pit_cdr(rt, pit_cdr(rt, args)));
     return pit_array_set(rt, arr, pit_as_integer(rt, idx), v);
 }
-static pit_value impl_array_map(pit_runtime *rt, pit_value args) {
+static pit_value impl_array_map(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value func = pit_car(rt, args);
     pit_value arr = pit_car(rt, pit_cdr(rt, args));
     i64 len = pit_array_len(rt, arr);
@@ -585,7 +646,8 @@ static pit_value impl_array_map(pit_runtime *rt, pit_value args) {
     }
     return ret;
 }
-static pit_value impl_array_map_mut(pit_runtime *rt, pit_value args) {
+static pit_value impl_array_map_mut(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value func = pit_car(rt, args);
     pit_value arr = pit_car(rt, pit_cdr(rt, args));
     i64 len = pit_array_len(rt, arr);
@@ -596,12 +658,14 @@ static pit_value impl_array_map_mut(pit_runtime *rt, pit_value args) {
     }
     return arr;
 }
-static pit_value impl_abs(pit_runtime *rt, pit_value args) {
+static pit_value impl_abs(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 x = pit_as_integer(rt, pit_car(rt, args));
     if (x < 0) return pit_integer_new(rt, -x);
     return pit_integer_new(rt, x);
 }
-static pit_value impl_add(pit_runtime *rt, pit_value args) {
+static pit_value impl_add(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 total = 0;
     while (args != PIT_NIL) {
         total += pit_as_integer(rt, pit_car(rt, args));
@@ -609,7 +673,8 @@ static pit_value impl_add(pit_runtime *rt, pit_value args) {
     }
     return pit_integer_new(rt, total);
 }
-static pit_value impl_sub(pit_runtime *rt, pit_value args) {
+static pit_value impl_sub(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 total = 0;
     while (args != PIT_NIL) {
         total -= pit_as_integer(rt, pit_car(rt, args));
@@ -617,7 +682,8 @@ static pit_value impl_sub(pit_runtime *rt, pit_value args) {
     }
     return pit_integer_new(rt, total);
 }
-static pit_value impl_mul(pit_runtime *rt, pit_value args) {
+static pit_value impl_mul(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 total = 1;
     while (args != PIT_NIL) {
         total *= pit_as_integer(rt, pit_car(rt, args));
@@ -625,7 +691,8 @@ static pit_value impl_mul(pit_runtime *rt, pit_value args) {
     }
     return pit_integer_new(rt, total);
 }
-static pit_value impl_div(pit_runtime *rt, pit_value args) {
+static pit_value impl_div(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 total = pit_as_integer(rt, pit_car(rt, args));
     args = pit_cdr(rt, args);
     while (args != PIT_NIL) {
@@ -639,34 +706,40 @@ static pit_value impl_div(pit_runtime *rt, pit_value args) {
     }
     return pit_integer_new(rt, total);
 }
-static pit_value impl_not(pit_runtime *rt, pit_value args) {
+static pit_value impl_not(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     if (pit_car(rt, args) == PIT_NIL) {
         return PIT_T;
     } else {
         return PIT_NIL;
     }
 }
-static pit_value impl_lt(pit_runtime *rt, pit_value args) {
+static pit_value impl_lt(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 x = pit_as_integer(rt, pit_car(rt, args));
     i64 y = pit_as_integer(rt, pit_car(rt, pit_cdr(rt, args)));
     return pit_bool_new(rt, x < y);
 }
-static pit_value impl_gt(pit_runtime *rt, pit_value args) {
+static pit_value impl_gt(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 x = pit_as_integer(rt, pit_car(rt, args));
     i64 y = pit_as_integer(rt, pit_car(rt, pit_cdr(rt, args)));
     return pit_bool_new(rt, x > y);
 }
-static pit_value impl_le(pit_runtime *rt, pit_value args) {
+static pit_value impl_le(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 x = pit_as_integer(rt, pit_car(rt, args));
     i64 y = pit_as_integer(rt, pit_car(rt, pit_cdr(rt, args)));
     return pit_bool_new(rt, x <= y);
 }
-static pit_value impl_ge(pit_runtime *rt, pit_value args) {
+static pit_value impl_ge(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 x = pit_as_integer(rt, pit_car(rt, args));
     i64 y = pit_as_integer(rt, pit_car(rt, pit_cdr(rt, args)));
     return pit_bool_new(rt, x >= y);
 }
-static pit_value impl_bitwise_and(pit_runtime *rt, pit_value args) {
+static pit_value impl_bitwise_and(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 total = -1;
     while (args != PIT_NIL) {
         total &= pit_as_integer(rt, pit_car(rt, args));
@@ -674,7 +747,8 @@ static pit_value impl_bitwise_and(pit_runtime *rt, pit_value args) {
     }
     return pit_integer_new(rt, total);
 }
-static pit_value impl_bitwise_or(pit_runtime *rt, pit_value args) {
+static pit_value impl_bitwise_or(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 total = 0;
     while (args != PIT_NIL) {
         total |= pit_as_integer(rt, pit_car(rt, args));
@@ -682,7 +756,8 @@ static pit_value impl_bitwise_or(pit_runtime *rt, pit_value args) {
     }
     return pit_integer_new(rt, total);
 }
-static pit_value impl_bitwise_xor(pit_runtime *rt, pit_value args) {
+static pit_value impl_bitwise_xor(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 total = 0;
     while (args != PIT_NIL) {
         total ^= pit_as_integer(rt, pit_car(rt, args));
@@ -690,16 +765,19 @@ static pit_value impl_bitwise_xor(pit_runtime *rt, pit_value args) {
     }
     return pit_integer_new(rt, total);
 }
-static pit_value impl_bitwise_not(pit_runtime *rt, pit_value args) {
+static pit_value impl_bitwise_not(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 x = pit_as_integer(rt, pit_car(rt, args));
     return pit_integer_new(rt, ~x);
 }
-static pit_value impl_bitwise_lshift(pit_runtime *rt, pit_value args) {
+static pit_value impl_bitwise_lshift(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 val = pit_as_integer(rt, pit_car(rt, args));
     i64 shift = pit_as_integer(rt, pit_car(rt, pit_cdr(rt, args)));
     return pit_integer_new(rt, val << shift);
 }
-static pit_value impl_bitwise_rshift(pit_runtime *rt, pit_value args) {
+static pit_value impl_bitwise_rshift(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     i64 val = pit_as_integer(rt, pit_car(rt, args));
     i64 shift = pit_as_integer(rt, pit_car(rt, pit_cdr(rt, args)));
     if (shift >= 64) val = 0;
@@ -801,7 +879,8 @@ void pit_install_library_essential(pit_runtime *rt) {
     pit_fset(rt, pit_intern_cstr(rt, "bitwise/rshift"), pit_nativefunc_new(rt, impl_bitwise_rshift));
 }
 
-static pit_value impl_plist_get(pit_runtime *rt, pit_value args) {
+static pit_value impl_plist_get(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value k = pit_car(rt, args);
     pit_value vs = pit_car(rt, pit_cdr(rt, args));
     return pit_plist_get(rt, k, vs);
@@ -811,7 +890,8 @@ void pit_install_library_plist(pit_runtime *rt) {
     pit_fset(rt, pit_intern_cstr(rt, "plist/get"), pit_nativefunc_new(rt, impl_plist_get));
 }
 
-static pit_value impl_alist_get(pit_runtime *rt, pit_value args) {
+static pit_value impl_alist_get(pit_runtime *rt, pit_value args, void *data) {
+    (void) data;
     pit_value k = pit_car(rt, args);
     pit_value vs = pit_car(rt, pit_cdr(rt, args));
     while (vs != PIT_NIL) {

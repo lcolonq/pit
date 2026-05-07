@@ -349,7 +349,8 @@ bool pit_equal(pit_runtime *rt, pit_value a, pit_value b) {
                 && pit_equal(rt, ha->in.func.args, hb->in.func.args)
                 && pit_equal(rt, ha->in.func.body, hb->in.func.body);
         case PIT_VALUE_HEAVY_SORT_NATIVEFUNC:
-            return ha->in.nativefunc == hb->in.nativefunc;
+            return ha->in.nativefunc.f == hb->in.nativefunc.f
+                && ha->in.nativefunc.data == hb->in.nativefunc.data;
         case PIT_VALUE_HEAVY_SORT_NATIVEDATA:
             return
                 pit_eq(ha->in.nativedata.tag, hb->in.nativedata.tag)
@@ -799,13 +800,17 @@ pit_value pit_lambda(pit_runtime *rt, pit_value args, pit_value body) {
     h->in.func.body = expanded;
     return ret;
 }
-pit_value pit_nativefunc_new(pit_runtime *rt, pit_nativefunc f) {
+pit_value pit_nativefunc_new_with_data(pit_runtime *rt, pit_nativefunc f, void *data) {
     pit_value ret = pit_heavy_new(rt);
     pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, ret));
     if (!h) { pit_error(rt, "failed to create new heavy value for nativefunc"); return PIT_NIL; }
     h->hsort = PIT_VALUE_HEAVY_SORT_NATIVEFUNC;
-    h->in.nativefunc = f;
+    h->in.nativefunc.f = f;
+    h->in.nativefunc.data = data;
     return ret;
+}
+pit_value pit_nativefunc_new(pit_runtime *rt, pit_nativefunc f) {
+    return pit_nativefunc_new_with_data(rt, f, NULL);
 }
 pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
     char buf[256] = {0};
@@ -854,7 +859,7 @@ pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args) {
             return ret;
         } else if (h->hsort == PIT_VALUE_HEAVY_SORT_NATIVEFUNC) {
             /* calling native functions is even simpler */
-            return h->in.nativefunc(rt, args);
+            return h->in.nativefunc.f(rt, args, h->in.nativefunc.data);
         } else {
             i64 end = pit_dump(rt, buf, sizeof(buf) - 1, f, true);
             buf[end] = 0;

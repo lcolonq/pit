@@ -156,7 +156,9 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
 }
 
 pit_value pit_get_error(pit_runtime *rt) {
-    return rt->error;
+    pit_value ret = rt->error;
+    rt->error = PIT_NIL;
+    return ret;
 }
 
 void pit_error(pit_runtime *rt, char *format, ...) {

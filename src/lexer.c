@@ -1,6 +1,7 @@
 #include <lcq/pit/utils.h>
 #include <lcq/pit/lexer.h>
 #include <lcq/pit/types.h>
+#include <stdio.h>
 
 const char *PIT_LEX_TOKEN_NAMES[PIT_LEX_TOKEN__SENTINEL] = {
     /* [PIT_LEX_TOKEN_EOF] = */ "eof",
@@ -92,20 +93,34 @@ restart:
         }
         advance(st);
         return PIT_LEX_TOKEN_STRING_LITERAL;
-    default:
+    default: {
         if (pit_ctype_isspace(c)) goto restart;
-        if (pit_ctype_isdigit(c)) {
-            if (c == '0') {
-                int next = peek(st);
-                if (next != 'x' && next != 'o' && next != 'b') return PIT_LEX_TOKEN_INTEGER_LITERAL;
-                advance(st); /* skip base specifier */
-            }
-            while (match(st, is_hexdigit)) {}
-            return PIT_LEX_TOKEN_INTEGER_LITERAL;
+        pit_lex_token ret = PIT_LEX_TOKEN_INTEGER_LITERAL;
+        int num_idx = 0;
+        bool leading_dash = false;
+        bool zero_prefix = false;
+        if (!is_symchar(c)) {
+            st->error = "unknown character";
+            return PIT_LEX_TOKEN_ERROR;
         } else {
-            while (match(st, is_symchar)) {}
-            return PIT_LEX_TOKEN_SYMBOL;
+            do {
+                leading_dash = false;
+                switch (num_idx) {
+                case 0:
+                    if (c == '0') zero_prefix = true;
+                    else if (c == '-') { leading_dash = true; continue; }
+                    break;
+                case 1:
+                    if (zero_prefix && (c == 'x' || c == 'o' || c == 'b')) continue;
+                    break;
+                }
+                if (!is_hexdigit(c)) ret = PIT_LEX_TOKEN_SYMBOL;
+                ++num_idx;
+            } while (c = peek(st), match(st, is_symchar));
         }
+        if (leading_dash) return PIT_LEX_TOKEN_SYMBOL;
+        return ret;
+    }
     }
 }
 

@@ -129,7 +129,16 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
         i64 idx = st->cur.start;
         i64 base = 10;
         i64 total = 0;
+        bool neg = false;
         char c = st->lexer->input[idx++];
+        if (c == '-') {
+            neg = true;
+            if (idx < st->cur.end) {
+                c = st->lexer->input[idx++];
+            } else {
+                pit_error(rt, "malformed negative integer literal"); return PIT_NIL;
+            }
+        }
         if (c == '0' && idx + 1 < st->cur.end) {
             switch (st->lexer->input[idx++]) {
             case 'b': base = 2; break;
@@ -145,7 +154,7 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
                 pit_error(rt, "integer literal too large"); return PIT_NIL;
             }
         }
-        return pit_integer_new(rt, total);
+        return pit_integer_new(rt, neg ? -total : total);
     }
     case PIT_LEX_TOKEN_STRING_LITERAL: {
         char buf[256] = {0};

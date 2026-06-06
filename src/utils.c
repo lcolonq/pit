@@ -45,6 +45,7 @@ int pit_string_vsnprintf(char *buf, size_t len, char *format, va_list ap) {
                 if (length_mod == 'l') arg = va_arg(ap, long); else arg = va_arg(ap, int);
                 if (arg == 0) { WRITE('0') }
                 else {
+                    if (arg < 0) { WRITE('-'); arg = -arg; }
                     while (arg != 0) { WRITE_SCRATCH('0' + (char) (arg % 10)); arg /= 10; }
                     while (sidx > 0) { WRITE(scratch[sidx - 1]); sidx -= 1; }
                 }

@@ -1,7 +1,6 @@
 #include <lcq/pit/utils.h>
 #include <lcq/pit/lexer.h>
 #include <lcq/pit/types.h>
-#include <stdio.h>
 
 const char *PIT_LEX_TOKEN_NAMES[PIT_LEX_TOKEN__SENTINEL] = {
     /* [PIT_LEX_TOKEN_EOF] = */ "eof",
@@ -97,6 +96,7 @@ restart:
         if (pit_ctype_isspace(c)) goto restart;
         pit_lex_token ret = PIT_LEX_TOKEN_INTEGER_LITERAL;
         int num_idx = 0;
+        bool hex = false;
         bool leading_dash = false;
         bool zero_prefix = false;
         if (!is_symchar(c)) {
@@ -111,10 +111,13 @@ restart:
                     else if (c == '-') { leading_dash = true; continue; }
                     break;
                 case 1:
-                    if (zero_prefix && (c == 'x' || c == 'o' || c == 'b')) continue;
+                    if (zero_prefix) {
+                        if (c == 'x') { hex = true; continue; }
+                        else if (c == 'o' || c == 'b') continue;
+                    }
                     break;
                 }
-                if (!is_hexdigit(c)) ret = PIT_LEX_TOKEN_SYMBOL;
+                if (!(pit_ctype_isdigit(c) || (hex && is_hexdigit(c)))) ret = PIT_LEX_TOKEN_SYMBOL;
                 ++num_idx;
             } while (c = peek(st), match(st, is_symchar));
         }

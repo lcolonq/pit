@@ -34,6 +34,18 @@
               make CC=wasm32-clang prefix=$out install-core
             '';
           };
+          pit-arm = pkgs.pkgsCross.arm-embedded.stdenv.mkDerivation {
+            pname = "pit";
+            version = "git";
+            src = ./.;
+            hardeningDisable = ["all"];
+            buildPhase = ''
+              make CC=arm-none-eabi-gcc AR=arm-none-eabi-ar libcolonq-pit.a
+            '';
+            installPhase = ''
+              make CC=arm-none-eabi-gcc AR=arm-none-eabi-ar prefix=$out install-core
+            '';
+          };
           pit-windows = pkgs.pkgsCross.mingwW64.stdenv.mkDerivation {
             pname = "pit";
             version = "git";
@@ -51,6 +63,7 @@
             inherit pit;
             default = pit;
             wasm = pit-wasm;
+            arm = pit-arm;
             windows = pit-windows;
           };
           devShells.default = pkgs.mkShell {

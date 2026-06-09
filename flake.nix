@@ -31,7 +31,7 @@
               make CC=wasm32-clang libcolonq-pit.a
             '';
             installPhase = ''
-              make CC=wasm32-clang prefix=$out install-core
+              make CC=wasm32-clang prefix=$out install-core install-headers
             '';
           };
           pit-arm = pkgs.pkgsCross.arm-embedded.stdenv.mkDerivation {
@@ -43,7 +43,7 @@
               make CC=arm-none-eabi-gcc AR=arm-none-eabi-ar libcolonq-pit.a
             '';
             installPhase = ''
-              make CC=arm-none-eabi-gcc AR=arm-none-eabi-ar prefix=$out install-core
+              make CC=arm-none-eabi-gcc AR=arm-none-eabi-ar prefix=$out install-core install-headers
             '';
           };
           pit-windows = pkgs.pkgsCross.mingwW64.stdenv.mkDerivation {

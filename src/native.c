@@ -111,7 +111,7 @@ void pit_repl(pit_runtime *rt) {
             bufcap *= 2;
             buf = realloc(buf, bufcap);
         }
-        pit_value res;
+        pit_value res = PIT_NIL;
         pit_lexer lex;
         pit_parser parse;
         bool eof = false;

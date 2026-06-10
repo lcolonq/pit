@@ -25,10 +25,10 @@ u64 pit_value_data(pit_value v) {
 pit_runtime *pit_runtime_new(u8 *buf, i64 len) {
     pit_arena *a = pit_arena_new(buf, len, sizeof(u8));
     pit_runtime *ret = pit_arena_alloc_back(a, sizeof(*ret));
-    i64 heap_size = 64 * 1024 * 1024;
-    i64 symtab_size = 1024 * 1024;
-    i64 scratch_size = 1024 * 1024;
-    i64 stack_size = 64 * 1024;
+    i64 heap_size = len / 4;
+    i64 symtab_size = len / 8;
+    i64 scratch_size = len / 16;
+    i64 stack_size = len / 16;
     ret->heap = pit_arena_new(pit_arena_alloc_back(a, heap_size), heap_size, sizeof(pit_value_heavy));
     ret->backbuffer = pit_arena_new(pit_arena_alloc_back(a, heap_size), heap_size, sizeof(pit_value_heavy));
     ret->symtab = pit_arena_new(pit_arena_alloc_back(a, symtab_size), symtab_size, sizeof(pit_symtab_entry));

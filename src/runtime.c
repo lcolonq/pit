@@ -67,7 +67,11 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
     if (len <= 0) return 0;
     switch (pit_value_sort(v)) {
     case PIT_VALUE_SORT_DOUBLE:
+        #ifndef PIT_NO_DOUBLE
         return pit_string_snprintf(buf, (size_t) len, "%lf", pit_as_double(rt, v));
+        #else
+        return pit_string_snprintf(buf, (size_t) len, "<unsupported double>");
+        #endif
     case PIT_VALUE_SORT_INTEGER:
         return pit_string_snprintf(buf, (size_t) len, "%ld", pit_as_integer(rt, v));
     case PIT_VALUE_SORT_SYMBOL: {
@@ -194,6 +198,7 @@ pit_value pit_value_new(pit_runtime *rt, enum pit_value_sort s, u64 data) {
         | (data & 0x1ffffffffffff);
 }
 
+#ifndef PIT_NO_DOUBLE
 double pit_as_double(pit_runtime *rt, pit_value v) {
     if (pit_value_sort(v) != PIT_VALUE_SORT_DOUBLE) {
         pit_error(rt, "invalid use of value as double");
@@ -208,6 +213,7 @@ pit_value pit_double_new(pit_runtime *rt, double d) {
     x.dval = d;
     return pit_value_new(rt, PIT_VALUE_SORT_DOUBLE, x.ival);
 }
+#endif
 
 i64 pit_as_integer(pit_runtime *rt, pit_value v) {
     if (pit_value_sort(v) != PIT_VALUE_SORT_INTEGER) {

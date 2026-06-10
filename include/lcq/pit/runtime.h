@@ -115,8 +115,10 @@ void pit_error(pit_runtime *rt, char *format, ...);
 
 /* working with small values */
 pit_value pit_value_new(pit_runtime *rt, enum pit_value_sort s, u64 data);
+#ifndef PIT_NO_DOUBLE
 double pit_as_double(pit_runtime *rt, pit_value v);
 pit_value pit_double_new(pit_runtime *rt, double d);
+#endif
 i64 pit_as_integer(pit_runtime *rt, pit_value v);
 pit_value pit_integer_new(pit_runtime *rt, i64 i);
 pit_value pit_bool_new(pit_runtime *rt, bool i);

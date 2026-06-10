@@ -40,7 +40,7 @@
             src = ./.;
             hardeningDisable = ["all"];
             buildPhase = ''
-              make CC=arm-none-eabi-gcc AR=arm-none-eabi-ar libcolonq-pit.a
+              make CPPFLAGS=-DPIT_NO_DOUBLE CC=arm-none-eabi-gcc AR=arm-none-eabi-ar libcolonq-pit.a
             '';
             installPhase = ''
               make CC=arm-none-eabi-gcc AR=arm-none-eabi-ar prefix=$out install-core install-headers

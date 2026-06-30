@@ -2,7 +2,6 @@ EXE ?= pit
 
 CC ?= gcc
 AR ?= ar
-CHK_SOURCES ?= src/main.c $(SRCS)
 override CPPFLAGS += -MMD -MP
 override CFLAGS += -Oz -fPIC --std=c99 -g -Ideps/ -Isrc/ -Iinclude/ -Wall -Wextra -Wpedantic -Wconversion -Wformat-security -Wshadow -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes -Wnull-dereference -Wfloat-equal -Wundef -Wpointer-arith -Wbad-function-cast -Wlogical-op -Wmissing-braces -Wcast-align -Wstrict-overflow=5 -fwrapv # -ftrapv
 override LDFLAGS += -g -static
@@ -15,6 +14,9 @@ LIB_CORE := libcolonq-pit.a
 SRCS_NATIVE := src/native.c
 OBJECTS_NATIVE := $(SRCS_NATIVE:src/%.c=$(BUILD)/%.o)
 LIB_NATIVE := libcolonq-pit-native.a
+
+SRCS := src/main.c $(SRCS_CORE) $(SRCS_NATIVE)
+CHK_SOURCES ?= $(SRCS)
 
 prefix ?= /usr/local
 exec_prefix ?= $(prefix)

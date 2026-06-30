@@ -1,0 +1,8 @@
+[2026-06-26]
+
+- annotations do not work properly because macroexpansion creates an entirely new body for lambdas
+- we realized that we are handling macro application in two separate places: pit_expand_macros expands lambda bodies, and pit_eval expands macros encountered while evaling. we ought to unify this so that only one is used (probably pit_expand_macros, because we need to expand macros eagerly to identify free variables to capture)
+- we probably can make pit_expand_macros and pit_eval much nicer
+- we can probably make pit_expand_macros operate in place
+- if we want to be really smart, cool, happy, rich:
+  let's just make stuff translate to a little VM before it evaluates, and let's store VM programs as functions instead of sexps

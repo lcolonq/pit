@@ -4,6 +4,8 @@
 #include <lcq/pit/runtime.h>
 #include <lcq/pit/library.h>
 
+#include <stdio.h>
+
 enum pit_value_sort pit_value_sort(pit_value v) {
     /* if this isn't a NaN, or it's a quiet NaN, this is a real double */
     /* if (((v >> 52) & 0b011111111111) != 0b011111111111 || ((v >> 51) & 0b1) == 1) return PIT_VALUE_SORT_DOUBLE; */
@@ -26,11 +28,14 @@ pit_runtime *pit_runtime_new(u8 *buf, i64 len) {
     pit_arena *a = pit_arena_new(buf, len, sizeof(u8));
     pit_runtime *ret = pit_arena_alloc_back(a, sizeof(*ret));
     i64 heap_size = len / 4;
-    i64 symtab_size = len / 8;
-    i64 scratch_size = len / 16;
-    i64 stack_size = len / 16;
+    i64 annotations_size = len / 32;
+    i64 symtab_size = len / 16;
+    i64 scratch_size = len / 32;
+    i64 stack_size = len / 32;
     ret->heap = pit_arena_new(pit_arena_alloc_back(a, heap_size), heap_size, sizeof(pit_value_heavy));
     ret->backbuffer = pit_arena_new(pit_arena_alloc_back(a, heap_size), heap_size, sizeof(pit_value_heavy));
+    ret->annotations = pit_expr_annotations_new(pit_arena_alloc_back(a, annotations_size), annotations_size);
+    ret->annotations_backbuffer = pit_expr_annotations_new(pit_arena_alloc_back(a, annotations_size), annotations_size);
     ret->symtab = pit_arena_new(pit_arena_alloc_back(a, symtab_size), symtab_size, sizeof(pit_symtab_entry));
     ret->symtab_len = 0;
     ret->scratch = pit_arena_new(pit_arena_alloc_back(a, scratch_size), scratch_size, sizeof(u8));
@@ -965,6 +970,32 @@ void pit_runtime_eval_program_push_apply(pit_runtime *rt, pit_runtime_eval_progr
     (void) rt;
 }
 
+pit_expr_annotations *pit_expr_annotations_new(u8 *buf, i64 buf_len) {
+    uintptr_t base = (uintptr_t) buf;
+    uintptr_t aligned = pit_align_up(base, sizeof(void *));
+    pit_expr_annotations *ret = (pit_expr_annotations *) aligned;
+    uintptr_t data = aligned + sizeof(pit_arena);
+    i64 offset = (i64) data - (i64) base;
+    i64 remaining = (i64) (buf_len - offset);
+    i64 cap = remaining / (i64) sizeof(pit_expr_annotation);
+    ret->next = 0;
+    ret->capacity = cap;
+    return ret;
+}
+void pit_expr_annotations_push(pit_expr_annotations *s, pit_ref ref, i64 line, i64 column) {
+    pit_expr_annotation *ent = &s->data[s->next++];
+    ent->ref = ref;
+    ent->line = line;
+    ent->column = column;
+}
+
+pit_expr_annotation *pit_expr_annotations_lookup(pit_expr_annotations *s, pit_ref ref) {
+    for (i64 i = 0; i < s->next; ++i) {
+        if (s->data[i].ref == ref) return &s->data[i];
+    }
+    return NULL;
+}
+
 pit_value pit_expand_macros(pit_runtime *rt, pit_value top) {
     i64 expr_stack_reset = rt->expr_stack->next;
     i64 result_stack_reset = rt->result_stack->next;
@@ -1066,6 +1097,16 @@ pit_value pit_eval(pit_runtime *rt, pit_value top) {
         if (pit_is_cons(rt, cur)) { /* compound expressions: function/macro application special forms */
             pit_value fsym = pit_car(rt, cur);
             bool is_symbol = pit_is_symbol(rt, fsym);
+            pit_expr_annotation *ann = pit_expr_annotations_lookup(rt->annotations, pit_as_ref(rt, cur));
+            fprintf(stderr, "looking up annotation (%ld): ", pit_as_ref(rt, cur));
+            pit_trace_(rt, "%s\n", cur);
+            if (ann) {
+                fprintf(stderr, "%ld:%ld\n", ann->line, ann->column);
+                rt->source_line = ann->line;
+                rt->source_column = ann->column;
+            } else {
+                fprintf(stderr, "failed to find ann\n");
+            }
             if (is_symbol && pit_is_symbol_special_form(rt, fsym)) { /* special forms */
                 pit_value f = pit_fget(rt, fsym);
                 pit_value args = pit_cdr(rt, cur);
@@ -1160,6 +1201,7 @@ static pit_value gc_copy_value(pit_runtime *rt, pit_arena *tospace, pit_value v)
     }
 }
 void pit_collect_garbage(pit_runtime *rt) {
+    return; // TODO
     rt->frozen_values = 0;
     rt->frozen_symtab = 0;
     pit_arena *fromspace = rt->heap;

@@ -81,12 +81,28 @@ pit_runtime_eval_program *pit_runtime_eval_program_new(u8 *buf, i64 buf_len);
 void pit_runtime_eval_program_push_literal(struct pit_runtime *rt, pit_runtime_eval_program *s, pit_value x);
 void pit_runtime_eval_program_push_apply(struct pit_runtime *rt, pit_runtime_eval_program *s, i64 arity);
 
+/* annotation attached to (some) heavy values detaiking things like line numbers */
+typedef struct {
+    pit_ref ref;
+    i64 line;
+    i64 column;
+} pit_expr_annotation;
+typedef struct {
+    i64 capacity, next;
+    pit_expr_annotation data[];
+} pit_expr_annotations;
+pit_expr_annotations *pit_expr_annotations_new(u8 *buf, i64 buf_len);
+void pit_expr_annotations_push(pit_expr_annotations *s, pit_ref ref, i64 line, i64 column);
+pit_expr_annotation *pit_expr_annotations_lookup(pit_expr_annotations *s, pit_ref ref);
+
 typedef struct pit_runtime {
     /* interpreter state */
     pit_arena *heap; /* all heavy values, bytestrings, and arrays. */
     /* bytestrings and arrays are allocated at the end (descending), heavy values are allocated at the front */
     /* this allows us to iterate over only heavy values at the front (useful in Cheney's algorithm for GC */
     pit_arena *backbuffer; /* additional allocation, the same size as the heap (used by GC) */
+    pit_expr_annotations *annotations;
+    pit_expr_annotations *annotations_backbuffer;
     pit_arena *symtab; i64 symtab_len; /* all symbols - effectively an array of pit_symtab_entry */
     /* temporary/"scratch" memory */
     pit_arena *scratch; /* temporary arena used during parsing and evaluation */

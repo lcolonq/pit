@@ -805,7 +805,6 @@ void pit_install_library_essential(pit_runtime *rt) {
     /* eval */
     pit_fset(rt, pit_intern_cstr(rt, "eval!"), pit_nativefunc_new(rt, impl_eval));
     /* predicates */
-    /*
     pit_fset(rt, pit_intern_cstr(rt, "eq?"), pit_nativefunc_new(rt, impl_eq_p));
     pit_fset(rt, pit_intern_cstr(rt, "equal?"), pit_nativefunc_new(rt, impl_equal_p));
     pit_fset(rt, pit_intern_cstr(rt, "integer?"), pit_nativefunc_new(rt, impl_integer_p));
@@ -815,25 +814,19 @@ void pit_install_library_essential(pit_runtime *rt) {
     pit_fset(rt, pit_intern_cstr(rt, "array?"), pit_nativefunc_new(rt, impl_array_p));
     pit_fset(rt, pit_intern_cstr(rt, "bytes?"), pit_nativefunc_new(rt, impl_bytes_p));
     pit_fset(rt, pit_intern_cstr(rt, "function?"), pit_nativefunc_new(rt, impl_function_p));
-    */
     /* symbols */
-    /*
     pit_fset(rt, pit_intern_cstr(rt, "set!"), pit_nativefunc_new(rt, impl_set));
     pit_fset(rt, pit_intern_cstr(rt, "fset!"), pit_nativefunc_new(rt, impl_fset));
     pit_fset(rt, pit_intern_cstr(rt, "symbol-is-macro!"), pit_nativefunc_new(rt, impl_symbol_is_macro));
     pit_fset(rt, pit_intern_cstr(rt, "funcall"), pit_nativefunc_new(rt, impl_funcall));
     pit_fset(rt, pit_intern_cstr(rt, "apply"), pit_nativefunc_new(rt, impl_apply));
-    */
     /* cons cells */
-    /*
     pit_fset(rt, pit_intern_cstr(rt, "cons"), pit_nativefunc_new(rt, impl_cons));
     pit_fset(rt, pit_intern_cstr(rt, "car"), pit_nativefunc_new(rt, impl_car));
     pit_fset(rt, pit_intern_cstr(rt, "cdr"), pit_nativefunc_new(rt, impl_cdr));
     pit_fset(rt, pit_intern_cstr(rt, "setcar!"), pit_nativefunc_new(rt, impl_setcar));
     pit_fset(rt, pit_intern_cstr(rt, "setcdr!"), pit_nativefunc_new(rt, impl_setcdr));
-    */
     /* cons lists*/
-    /*
     pit_fset(rt, pit_intern_cstr(rt, "list"), pit_nativefunc_new(rt, impl_list));
     pit_fset(rt, pit_intern_cstr(rt, "list/nth"), pit_nativefunc_new(rt, impl_list_nth));
     pit_fset(rt, pit_intern_cstr(rt, "list/iota"), pit_nativefunc_new(rt, impl_list_iota));
@@ -851,14 +844,10 @@ void pit_install_library_essential(pit_runtime *rt) {
     pit_fset(rt, pit_intern_cstr(rt, "list/contains?"), pit_nativefunc_new(rt, impl_list_contains_p));
     pit_fset(rt, pit_intern_cstr(rt, "list/all?"), pit_nativefunc_new(rt, impl_list_all_p));
     pit_fset(rt, pit_intern_cstr(rt, "list/zip-with"), pit_nativefunc_new(rt, impl_list_zip_with));
-    */
     /* bytestrings */ 
-    /*
     pit_fset(rt, pit_intern_cstr(rt, "bytes/len"), pit_nativefunc_new(rt, impl_bytes_len));
     pit_fset(rt, pit_intern_cstr(rt, "bytes/range"), pit_nativefunc_new(rt, impl_bytes_range));
-    */
     /* array */
-    /*
     pit_fset(rt, pit_intern_cstr(rt, "array"), pit_nativefunc_new(rt, impl_array));
     pit_fset(rt, pit_intern_cstr(rt, "array/to-list"), pit_nativefunc_new(rt, impl_array_to_list));
     pit_fset(rt, pit_intern_cstr(rt, "array/from-list"), pit_nativefunc_new(rt, impl_array_from_list));
@@ -868,7 +857,6 @@ void pit_install_library_essential(pit_runtime *rt) {
     pit_fset(rt, pit_intern_cstr(rt, "array/set!"), pit_nativefunc_new(rt, impl_array_set));
     pit_fset(rt, pit_intern_cstr(rt, "array/map"), pit_nativefunc_new(rt, impl_array_map));
     pit_fset(rt, pit_intern_cstr(rt, "array/map!"), pit_nativefunc_new(rt, impl_array_map_mut));
-    */
     /* arithmetic */
     pit_fset(rt, pit_intern_cstr(rt, "abs"), pit_nativefunc_new(rt, impl_abs));
     pit_fset(rt, pit_intern_cstr(rt, "+"), pit_nativefunc_new(rt, impl_add));
@@ -876,25 +864,19 @@ void pit_install_library_essential(pit_runtime *rt) {
     pit_fset(rt, pit_intern_cstr(rt, "*"), pit_nativefunc_new(rt, impl_mul));
     pit_fset(rt, pit_intern_cstr(rt, "/"), pit_nativefunc_new(rt, impl_div));
     /* booleans */
-    /*
     pit_fset(rt, pit_intern_cstr(rt, "not"), pit_nativefunc_new(rt, impl_not));
-    */
     /* comparisons */
-    /*
     pit_fset(rt, pit_intern_cstr(rt, "<"), pit_nativefunc_new(rt, impl_lt));
     pit_fset(rt, pit_intern_cstr(rt, ">"), pit_nativefunc_new(rt, impl_gt));
     pit_fset(rt, pit_intern_cstr(rt, "<="), pit_nativefunc_new(rt, impl_le));
     pit_fset(rt, pit_intern_cstr(rt, ">="), pit_nativefunc_new(rt, impl_ge));
-    */
     /* bitwise arithmetic */
-    /*
     pit_fset(rt, pit_intern_cstr(rt, "bitwise/and"), pit_nativefunc_new(rt, impl_bitwise_and));
     pit_fset(rt, pit_intern_cstr(rt, "bitwise/or"), pit_nativefunc_new(rt, impl_bitwise_or));
     pit_fset(rt, pit_intern_cstr(rt, "bitwise/xor"), pit_nativefunc_new(rt, impl_bitwise_xor));
     pit_fset(rt, pit_intern_cstr(rt, "bitwise/not"), pit_nativefunc_new(rt, impl_bitwise_not));
     pit_fset(rt, pit_intern_cstr(rt, "bitwise/lshift"), pit_nativefunc_new(rt, impl_bitwise_lshift));
     pit_fset(rt, pit_intern_cstr(rt, "bitwise/rshift"), pit_nativefunc_new(rt, impl_bitwise_rshift));
-    */
 }
 
 static pit_value impl_plist_get(pit_runtime *rt, pit_value args, void *data) {

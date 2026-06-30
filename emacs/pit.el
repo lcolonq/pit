@@ -102,41 +102,5 @@
         (cider--update-host-port)
         (cider--check-existing-session))))))
 
-(defun cider-repl-handler (buffer)
-  "Make an nREPL evaluation handler for the REPL BUFFER."
-  (message "running cider-repl-handler")
-  (let ((show-prompt t))
-    (nrepl-make-response-handler
-     buffer
-     (lambda (buffer value)
-       (message "value-handler")
-       (cider-repl-emit-result buffer value t))
-     (lambda (buffer out)
-       (dolist (f cider--repl-stdout-functions)
-         (funcall f buffer out))
-       (cider-repl-emit-stdout buffer out))
-     (lambda (buffer err)
-       (dolist (f cider--repl-stderr-functions)
-         (funcall f buffer err))
-       (cider-repl-emit-stderr buffer err))
-     (lambda (buffer)
-       (message "done-handler: %s" show-prompt)
-       (when show-prompt
-         (cider-repl-emit-prompt buffer))
-       (when cider-repl-buffer-size-limit
-         (cider-repl-maybe-trim-buffer buffer))
-       (dolist (f cider--repl-done-functions)
-         (funcall f buffer)))
-     nrepl-err-handler
-     (lambda (buffer value content-type)
-       (if-let* ((content-attrs (cadr content-type))
-                 (content-type* (car content-type))
-                 (handler (cdr (assoc content-type*
-                                      cider-repl-content-type-handler-alist))))
-           (setq show-prompt (funcall handler content-type buffer value nil t))
-         (cider-repl-emit-result buffer value t t)))
-     (lambda (buffer warning)
-       (cider-repl-emit-stderr buffer warning)))))
-
 (provide 'pit)
 ;;; pit.el ends here

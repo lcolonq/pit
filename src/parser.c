@@ -3,6 +3,8 @@
 #include <lcq/pit/parser.h>
 #include <lcq/pit/runtime.h>
 
+#include <stdio.h>
+
 static pit_lex_token peek(pit_parser *st) {
     if (!st) return PIT_LEX_TOKEN_ERROR;
     return st->next.token;
@@ -106,6 +108,14 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
             ret = pit_cons(rt, *v, ret);
         }
         rt->scratch->next = scratch_reset;
+        if (pit_value_sort(ret) == PIT_VALUE_SORT_REF) {
+            fprintf(stderr, "adding annotation (%ld): ", pit_as_ref(rt, ret));
+            pit_trace_(rt, "%s\n", ret);
+            pit_expr_annotations_push(rt->annotations,
+                pit_as_ref(rt, ret),
+                rt->source_line, rt->source_column
+            );
+        }
         return ret;
     }
     case PIT_LEX_TOKEN_LSQUARE: {

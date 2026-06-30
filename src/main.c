@@ -20,6 +20,5 @@ int main(int argc, char **argv) {
         pit_repl(rt);
     } else {
         pit_load_file(rt, argv[1]);
-        if (pit_runtime_print_error(rt)) return -1;
     }
 }

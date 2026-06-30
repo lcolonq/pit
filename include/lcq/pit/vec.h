@@ -6,6 +6,7 @@
 
 #define pit_vec(ty) pit_vec__ ## ty ## __type
 #define pit_vec_new(ty) pit_vec__ ## ty ## __new
+#define pit_vec_reset(ty) pit_vec__ ## ty ## __reset
 #define pit_vec_get(ty) pit_vec__ ## ty ## __get
 #define pit_vec_push(ty) pit_vec__ ## ty ## __push
 #define pit_vec_pop(ty) pit_vec__ ## ty ## __pop
@@ -26,6 +27,9 @@
         ret->capacity = remaining; \
         if ((ret->next + 1) * (i64) sizeof(ty) > ret->capacity) return NULL; \
         return ret; \
+    } \
+    static __attribute__ ((unused)) void pit_vec_reset(ty)(pit_vec(ty) *s) { \
+        s->next = 0; \
     } \
     static __attribute__ ((unused)) ty *pit_vec_get(ty)(pit_vec(ty) *s, i64 i) { \
         i64 idx = i * (i64) sizeof(ty); \

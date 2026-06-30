@@ -24,24 +24,28 @@ i64 pit_lex_file(pit_lexer *ret, char *path) {
 }
 
 bool pit_runtime_print_error(pit_runtime *rt) {
-    if (!pit_eq(rt->error, PIT_NIL)) {
+    if (!pit_value_eq(rt->error, PIT_NIL)) {
         char buf[1024] = {0};
-        i64 end = pit_dump(rt, buf, sizeof(buf) - 1, rt->error, false);
-        buf[end] = 0;
+        for (i64 i = 0; i < rt->backtrace->next; ++i) {
+            pit_annotated_ref *a = pit_vec_get(pit_annotated_ref)(rt->backtrace, i);
+            if (a == NULL) continue;
+            fprintf(stderr, "on line %ld, column %ld\n", a->annotation.line, a->annotation.column);
+        }
+        i64 end = pit_dump(rt, buf, sizeof(buf) - 1, rt->error, false); buf[end] = 0;
         fprintf(stderr, "error at line %ld, column %ld: %s\n", rt->error_line, rt->error_column, buf);
         return true;
     }
     return false;
 }
 
-void pit_trace_(pit_runtime *rt, char *format, pit_value v) {
+void pit_debug_trace_(pit_runtime *rt, char *format, pit_value v) {
     char buf[1024] = {0};
     i64 end = pit_dump(rt, buf, sizeof(buf) - 1, v, true);
     buf[end] = 0;
     fprintf(stderr, format, buf);
 }
 
-pit_value pit_bytes_new_file(pit_runtime *rt, char *path) {
+pit_value pit_value_bytes_new_file(pit_runtime *rt, char *path) {
     if (rt->error != PIT_NIL) return PIT_NIL;
     FILE *f = fopen(path, "r");
     if (f == NULL) {
@@ -59,8 +63,8 @@ pit_value pit_bytes_new_file(pit_runtime *rt, char *path) {
         return PIT_NIL;
     }
     fclose(f);
-    pit_value ret = pit_heavy_new(rt);
-    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, ret));
+    pit_value ret = pit_value_ref_heavy_new(rt);
+    pit_value_heavy *h = pit_value_ref_deref(rt, pit_value_as_ref(rt, ret));
     if (!h) { pit_error(rt, "failed to create new heavy value for bytes"); return PIT_NIL; }
     h->hsort = PIT_VALUE_HEAVY_SORT_BYTES;
     h->in.bytes.data = dest;
@@ -69,11 +73,14 @@ pit_value pit_bytes_new_file(pit_runtime *rt, char *path) {
 }
 
 static void check_invariants(pit_runtime *rt) {
-    if (rt->scratch->next != 0) {
-        pit_error(rt, "leaked scratch memory! %ld", rt->scratch->next);
+    if (rt->expr_stack->next != 0) {
+        pit_error(rt, "leaked expr_stack memory! %ld", rt->expr_stack->next);
     }
-    if (rt->scratch->next != 0) {
-        pit_error(rt, "leaked scratch memory! %ld", rt->scratch->next);
+    if (rt->result_stack->next != 0) {
+        pit_error(rt, "leaked result_stack memory! %ld", rt->result_stack->next);
+    }
+    if (rt->program->next != 0) {
+        pit_error(rt, "leaked program memory! %ld", rt->program->next);
     }
 }
 pit_value pit_load_file(pit_runtime *rt, char *path) {
@@ -91,7 +98,7 @@ pit_value pit_load_file(pit_runtime *rt, char *path) {
         check_invariants(rt); if (pit_runtime_print_error(rt)) return PIT_NIL;
         ret = pit_eval(rt, p);
         check_invariants(rt); if (pit_runtime_print_error(rt)) return PIT_NIL;
-        pit_collect_garbage(rt);
+        pit_gc(rt);
         check_invariants(rt); if (pit_runtime_print_error(rt)) return PIT_NIL;
     }
     check_invariants(rt); if (pit_runtime_print_error(rt)) return PIT_NIL;
@@ -144,7 +151,7 @@ void pit_repl(pit_runtime *rt) {
         } else {
             char dumpbuf[1024] = {0};
             pit_dump(rt, dumpbuf, sizeof(dumpbuf) - 1, res, true);
-            pit_collect_garbage(rt);
+            pit_gc(rt);
             printf("%s\n> ", dumpbuf);
         }
         len = 0;
@@ -165,7 +172,7 @@ static pit_value impl_diagnostics(pit_runtime *rt, pit_value args, void *data) {
 }
 static pit_value impl_print(pit_runtime *rt, pit_value args, void *data) {
     (void) data;
-    pit_value x = pit_car(rt, args);
+    pit_value x = pit_value_cons_car(rt, args);
     char buf[1024] = {0};
     pit_dump(rt, buf, sizeof(buf), x, true);
     buf[1023] = 0;
@@ -174,7 +181,7 @@ static pit_value impl_print(pit_runtime *rt, pit_value args, void *data) {
 }
 static pit_value impl_princ(pit_runtime *rt, pit_value args, void *data) {
     (void) data;
-    pit_value x = pit_car(rt, args);
+    pit_value x = pit_value_cons_car(rt, args);
     char buf[1024] = {0};
     pit_dump(rt, buf, sizeof(buf), x, false);
     buf[1023] = 0;
@@ -183,21 +190,21 @@ static pit_value impl_princ(pit_runtime *rt, pit_value args, void *data) {
 }
 static pit_value impl_load(pit_runtime *rt, pit_value args, void *data) {
     (void) data;
-    pit_value path = pit_car(rt, args);
+    pit_value path = pit_value_cons_car(rt, args);
     char pathbuf[1024] = {0};
-    i64 len = pit_as_bytes(rt, path, (u8 *) pathbuf, sizeof(pathbuf) - 1);
+    i64 len = pit_value_bytes_copy(rt, path, (u8 *) pathbuf, sizeof(pathbuf) - 1);
     if (len < 0) { pit_error(rt, "path was not a string"); return PIT_NIL; }
     pathbuf[len] = 0;
     return pit_load_file(rt, pathbuf);
 }
 void pit_install_library_io(pit_runtime *rt) {
     /* diagnostics */
-    pit_fset(rt, pit_intern_cstr(rt, "diagnostics!"), pit_nativefunc_new(rt, impl_diagnostics));
+    pit_symtab_fset(rt, pit_symtab_intern_cstr(rt, "diagnostics!"), pit_value_nativefunc_new(rt, impl_diagnostics));
     /* stream IO */
-    pit_fset(rt, pit_intern_cstr(rt, "print!"), pit_nativefunc_new(rt, impl_print));
-    pit_fset(rt, pit_intern_cstr(rt, "princ!"), pit_nativefunc_new(rt, impl_princ));
+    pit_symtab_fset(rt, pit_symtab_intern_cstr(rt, "print!"), pit_value_nativefunc_new(rt, impl_print));
+    pit_symtab_fset(rt, pit_symtab_intern_cstr(rt, "princ!"), pit_value_nativefunc_new(rt, impl_princ));
     /* disk IO */
-    pit_fset(rt, pit_intern_cstr(rt, "load!"), pit_nativefunc_new(rt, impl_load));
+    pit_symtab_fset(rt, pit_symtab_intern_cstr(rt, "load!"), pit_value_nativefunc_new(rt, impl_load));
 }
 
 struct bytestring {
@@ -212,18 +219,18 @@ static pit_value impl_bs_new(pit_runtime *rt, pit_value args, void *data) {
     bs->len = 0;
     bs->cap = cap;
     bs->data = calloc((size_t) cap, 1);
-    return pit_nativedata_new(rt, pit_intern_cstr(rt, "bs"), (void *) bs);
+    return pit_value_nativedata_new(rt, pit_symtab_intern_cstr(rt, "bs"), (void *) bs);
 }
 static pit_value impl_bs_delete(pit_runtime *rt, pit_value args, void *data) {
     (void) data;
-    pit_value v = pit_car(rt, args);
-    pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, v));
+    pit_value v = pit_value_cons_car(rt, args);
+    pit_value_heavy *h = pit_value_ref_deref(rt, pit_value_as_ref(rt, v));
     if (!h) { pit_error(rt, "bad ref"); return PIT_NIL; }
     if (h->hsort != PIT_VALUE_HEAVY_SORT_NATIVEDATA) {
         pit_error(rt, "invalid use of value as bytestring nativedata");
         return PIT_NIL;
     }
-    if (!pit_eq(h->in.nativedata.tag, pit_intern_cstr(rt, "bs"))) {
+    if (!pit_value_eq(h->in.nativedata.tag, pit_symtab_intern_cstr(rt, "bs"))) {
         pit_error(rt, "native value is not a bytestring");
         return PIT_NIL;
     }
@@ -240,11 +247,11 @@ static pit_value impl_bs_delete(pit_runtime *rt, pit_value args, void *data) {
 }
 static pit_value impl_bs_grow(pit_runtime *rt, pit_value args, void *data) {
     (void) data;
-    pit_value vsz = pit_car(rt, args);
-    pit_value v = pit_car(rt, pit_cdr(rt, args));
-    struct bytestring *bs = pit_nativedata_get(rt, pit_intern_cstr(rt, "bs"), v);
+    pit_value vsz = pit_value_cons_car(rt, args);
+    pit_value v = pit_value_cons_car(rt, pit_value_cons_cdr(rt, args));
+    struct bytestring *bs = pit_value_nativedata_get(rt, pit_symtab_intern_cstr(rt, "bs"), v);
     if (!bs) return PIT_NIL;
-    i64 sz = pit_as_integer(rt, vsz);
+    i64 sz = pit_value_as_integer(rt, vsz);
     if (sz > bs->len) {
         if (sz > bs->cap) {
             while (bs->cap < sz) bs->cap <<= 1;
@@ -256,13 +263,13 @@ static pit_value impl_bs_grow(pit_runtime *rt, pit_value args, void *data) {
 }
 static pit_value impl_bs_spit(pit_runtime *rt, pit_value args, void *data) {
     (void) data;
-    pit_value path = pit_car(rt, args);
+    pit_value path = pit_value_cons_car(rt, args);
     char pathbuf[1024] = {0};
-    i64 len = pit_as_bytes(rt, path, (u8 *) pathbuf, sizeof(pathbuf) - 1);
+    i64 len = pit_value_bytes_copy(rt, path, (u8 *) pathbuf, sizeof(pathbuf) - 1);
     if (len < 0) { pit_error(rt, "path was not a string"); return PIT_NIL; }
     pathbuf[len] = 0;
-    pit_value v = pit_car(rt, pit_cdr(rt, args));
-    struct bytestring *bs = pit_nativedata_get(rt, pit_intern_cstr(rt, "bs"), v);
+    pit_value v = pit_value_cons_car(rt, pit_value_cons_cdr(rt, args));
+    struct bytestring *bs = pit_value_nativedata_get(rt, pit_symtab_intern_cstr(rt, "bs"), v);
     if (!bs) return PIT_NIL;
     FILE *f = fopen(pathbuf, "w+");
     if (!f) { pit_error(rt, "failed to open file: %s", pathbuf); return PIT_NIL; }
@@ -276,13 +283,13 @@ static pit_value impl_bs_spit(pit_runtime *rt, pit_value args, void *data) {
 }
 static pit_value impl_bs_write8(pit_runtime *rt, pit_value args, void *data) {
     (void) data;
-    pit_value v = pit_car(rt, args);
-    pit_value vidx = pit_car(rt, pit_cdr(rt, args));
-    pit_value vx = pit_car(rt, pit_cdr(rt, pit_cdr(rt, args)));
-    struct bytestring *bs = pit_nativedata_get(rt, pit_intern_cstr(rt, "bs"), v);
+    pit_value v = pit_value_cons_car(rt, args);
+    pit_value vidx = pit_value_cons_car(rt, pit_value_cons_cdr(rt, args));
+    pit_value vx = pit_value_cons_car(rt, pit_value_cons_cdr(rt, pit_value_cons_cdr(rt, args)));
+    struct bytestring *bs = pit_value_nativedata_get(rt, pit_symtab_intern_cstr(rt, "bs"), v);
     if (!bs) return PIT_NIL;
-    i64 idx = pit_as_integer(rt, vidx);
-    u8 x = (u8) pit_as_integer(rt, vx);
+    i64 idx = pit_value_as_integer(rt, vidx);
+    u8 x = (u8) pit_value_as_integer(rt, vx);
     if (idx >= bs->len) {
         pit_error(rt, "index %d out of bounds in bytestring (length %d)", idx, bs->len);
         return PIT_NIL;
@@ -292,9 +299,9 @@ static pit_value impl_bs_write8(pit_runtime *rt, pit_value args, void *data) {
 }
 void pit_install_library_bytestring(pit_runtime *rt) {
     /* bytestrings */
-    pit_fset(rt, pit_intern_cstr(rt, "bs/new!"), pit_nativefunc_new(rt, impl_bs_new));
-    pit_fset(rt, pit_intern_cstr(rt, "bs/delete!"), pit_nativefunc_new(rt, impl_bs_delete));
-    pit_fset(rt, pit_intern_cstr(rt, "bs/grow!"), pit_nativefunc_new(rt, impl_bs_grow));
-    pit_fset(rt, pit_intern_cstr(rt, "bs/spit!"), pit_nativefunc_new(rt, impl_bs_spit));
-    pit_fset(rt, pit_intern_cstr(rt, "bs/write8!"), pit_nativefunc_new(rt, impl_bs_write8));
+    pit_symtab_fset(rt, pit_symtab_intern_cstr(rt, "bs/new!"), pit_value_nativefunc_new(rt, impl_bs_new));
+    pit_symtab_fset(rt, pit_symtab_intern_cstr(rt, "bs/delete!"), pit_value_nativefunc_new(rt, impl_bs_delete));
+    pit_symtab_fset(rt, pit_symtab_intern_cstr(rt, "bs/grow!"), pit_value_nativefunc_new(rt, impl_bs_grow));
+    pit_symtab_fset(rt, pit_symtab_intern_cstr(rt, "bs/spit!"), pit_value_nativefunc_new(rt, impl_bs_spit));
+    pit_symtab_fset(rt, pit_symtab_intern_cstr(rt, "bs/write8!"), pit_value_nativefunc_new(rt, impl_bs_write8));
 }

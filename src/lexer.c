@@ -24,7 +24,7 @@ static bool is_more_input(pit_lexer *st) {
 }
 
 static int is_symchar(int c) {
-    return c != '(' && c != ')' && c != '.' && c != '\'' && c != '"'
+    return c != '(' && c != ')' && c != '[' && c != ']' && c != '.' && c != '\'' && c != '"'
         && pit_libc_ctype_isprint(c)
         && !pit_libc_ctype_isspace(c);
 }

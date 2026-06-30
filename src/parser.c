@@ -4,8 +4,6 @@
 #include <lcq/pit/parser.h>
 #include <lcq/pit/runtime.h>
 
-#include <stdio.h>
-
 static pit_lex_token peek(pit_parser *st) {
     if (!st) return PIT_LEX_TOKEN_ERROR;
     return st->next.token;
@@ -76,12 +74,6 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
         }
         return PIT_NIL;
     case PIT_LEX_TOKEN_LPAREN: {
-        /* to construct a cons-list, we need the arguments "backwards"
-           we could reverse or build up a temporary list
-           (or use non-tail recursion, which is basically the temporary list on the stack)
-           we choose to build a temporary list on the scratch arena
-        */
-        i64 scratch_reset = rt->scratch->next;
         pit_value ret = PIT_NIL;
         while (!match(st, PIT_LEX_TOKEN_RPAREN)) {
             if (match(st, PIT_LEX_TOKEN_DOT)) {
@@ -93,49 +85,44 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
                     return PIT_NIL;
                 }
             } else {
-                pit_value *cell = pit_arena_alloc_array(rt->scratch, sizeof(pit_value));
-                *cell = pit_parse(rt, st, eof);
+                ret = pit_value_cons(rt, pit_parse(rt, st, eof), ret);
             }
             if (rt->error != PIT_NIL || (eof != NULL && *eof)) {
                 pit_error(rt, "unterminated list");
                 return PIT_NIL; /* if we hit an error, stop!*/
             }
         }
-        for (i64 i = rt->scratch->next - (i64) sizeof(pit_value);
-             i >= scratch_reset;
-             i -= (i64) sizeof(pit_value)
-        ) {
-            pit_value *v = pit_arena_get(rt->scratch, (i32) i);
-            ret = pit_cons(rt, *v, ret);
-        }
-        rt->scratch->next = scratch_reset;
+        ret = pit_value_list_reverse(rt, ret);
         if (pit_value_sort(ret) == PIT_VALUE_SORT_REF) {
-            fprintf(stderr, "adding annotation (%ld): ", pit_as_ref(rt, ret));
-            pit_trace_(rt, "%s\n", ret);
-            pit_expr_annotations_push(rt->annotations,
-                pit_as_ref(rt, ret),
-                rt->source_line, rt->source_column
-            );
+            pit_annotation a = {0};
+            a.line = rt->source_line;
+            a.column = rt->source_column;
+            pit_annotation_set(rt, pit_value_as_ref(rt, ret), a);
         }
         return ret;
     }
     case PIT_LEX_TOKEN_LSQUARE: {
-        i64 scratch_reset = rt->scratch->next;
+        pit_value ret = PIT_NIL;
+        pit_value xs = PIT_NIL;
         i64 len = 0;
         while (!match(st, PIT_LEX_TOKEN_RSQUARE)) {
-            pit_value *cell = pit_arena_alloc_array(rt->scratch, sizeof(pit_value));
-            *cell = pit_parse(rt, st, eof);
+            pit_value x = pit_parse(rt, st, eof);
+            xs = pit_value_cons(rt, x, xs);
             len += 1;
             if (rt->error != PIT_NIL || (eof != NULL && *eof)) {
                 pit_error(rt, "unterminated array literal");
                 return PIT_NIL;
             }
         }
-        rt->scratch->next = scratch_reset;
-        return pit_array_from_buf(rt, pit_arena_get(rt->scratch, (i32) scratch_reset), len);
+        ret = pit_value_array_new(rt, len);
+        while (xs != PIT_NIL) {
+            pit_value_array_set(rt, ret, --len, pit_value_cons_car(rt, xs));
+            xs = pit_value_cons_cdr(rt, xs);
+        }
+        return ret;
     }
     case PIT_LEX_TOKEN_QUOTE:
-        return pit_list(rt, 2, pit_intern_cstr(rt, "quote"), pit_parse(rt, st, eof));
+        return pit_value_list(rt, 2, pit_symtab_intern_cstr(rt, "quote"), pit_parse(rt, st, eof));
     case PIT_LEX_TOKEN_INTEGER_LITERAL: {
         i64 idx = st->cur.start;
         i64 base = 10;
@@ -165,7 +152,7 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
                 pit_error(rt, "integer literal too large"); return PIT_NIL;
             }
         }
-        return pit_integer_new(rt, neg ? -total : total);
+        return pit_value_integer_new(rt, neg ? -total : total);
     }
     case PIT_LEX_TOKEN_STRING_LITERAL: {
         char buf[256] = {0};
@@ -177,12 +164,12 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
             else if (buf[i] != '"') buf[cur++] = buf[i];
             else break;
         }
-        return pit_bytes_new(rt, (u8 *) buf, cur);
+        return pit_value_bytes_new(rt, (u8 *) buf, cur);
     }
     case PIT_LEX_TOKEN_SYMBOL: {
         char buf[256] = {0};
         get_token_string(st, buf, sizeof(buf));
-        return pit_intern_cstr(rt, buf);
+        return pit_symtab_intern_cstr(rt, buf);
     }
     default:
         pit_error(rt, "unexpected token: %s", pit_lex_token_name(t));

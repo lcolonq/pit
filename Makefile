@@ -3,12 +3,17 @@ EXE ?= pit
 CC ?= gcc
 AR ?= ar
 override CPPFLAGS += -MMD -MP
-override CFLAGS += -Oz -fPIC --std=c99 -g -Ideps/ -Isrc/ -Iinclude/ -Wall -Wextra -Wpedantic -Wconversion -Wformat-security -Wshadow -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes -Wnull-dereference -Wfloat-equal -Wundef -Wpointer-arith -Wbad-function-cast -Wlogical-op -Wmissing-braces -Wcast-align -Wstrict-overflow=5 -fwrapv # -ftrapv
+override CFLAGS += -fPIC --std=c99 -g -Ideps/ -Isrc/ -Iinclude/ -Wall -Wextra -Wpedantic -Wconversion -Wformat-security -Wshadow -Wpointer-arith -Wstrict-prototypes -Wmissing-prototypes -Wnull-dereference -Wfloat-equal -Wundef -Wpointer-arith -Wbad-function-cast -Wlogical-op -Wmissing-braces -Wcast-align -Wstrict-overflow=5 -fwrapv # -ftrapv
 override LDFLAGS += -g -static
 
 BUILD = build_$(CC)
 
-SRCS_CORE := src/utils.c src/arena.c src/lexer.c src/parser.c src/runtime.c src/library.c
+SRCS_CORE := \
+  src/utils.c src/arena.c src/lexer.c src/parser.c src/runtime.c \
+  src/runtime/value.c \
+  src/runtime/value/small.c src/runtime/value/cell.c src/runtime/value/cons.c src/runtime/value/array.c src/runtime/value/bytes.c src/runtime/value/func.c src/runtime/value/nativedata.c \
+  src/runtime/symtab.c src/runtime/dump.c src/runtime/macroexpand.c src/runtime/eval.c src/runtime/gc.c \
+  src/library.c
 OBJECTS_CORE := $(SRCS_CORE:src/%.c=$(BUILD)/%.o)
 LIB_CORE := libcolonq-pit.a
 SRCS_NATIVE := src/native.c
@@ -39,6 +44,8 @@ $(LIB_NATIVE): $(OBJECTS_NATIVE)
 
 $(BUILD):
 	mkdir $(BUILD)/
+	mkdir $(BUILD)/runtime/
+	mkdir $(BUILD)/runtime/value/
 
 $(BUILD)/%.o: src/%.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ -c $<

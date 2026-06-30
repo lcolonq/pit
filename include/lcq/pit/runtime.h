@@ -7,56 +7,33 @@
 #include <lcq/pit/arena.h>
 #include <lcq/pit/lexer.h>
 
-struct pit_runtime;
-
-/* nil is always the symbol with index 0 */
-#define PIT_NIL 0xfff4000000000000 /* 0b1111111111110100000000000000000000000000000000000000000000000000 */
-#define PIT_T   (PIT_NIL+1)
-
-enum pit_value_sort {
-    PIT_VALUE_SORT_DOUBLE  = 0, /* 0b00 - double */
-    PIT_VALUE_SORT_INTEGER = 1, /* 0b01 - NaN-boxed 49-bit integer */
-    PIT_VALUE_SORT_SYMBOL  = 2, /* 0b10 - NaN-boxed index into symbol table */
-    PIT_VALUE_SORT_REF     = 3  /* 0b11 - NaN-boxed index into "heavy object" arena */
-};
+typedef u64 pit_value;
 typedef i64 pit_symbol; /* a symbol at runtime is an index into the runtime's symbol table */
 typedef i64 pit_ref; /* a reference is an index into the runtime's arena */
-typedef u64 pit_value;
-enum pit_value_sort pit_value_sort(pit_value v);
-u64 pit_value_data(pit_value v);
-
 PIT_DECLARE_VEC(pit_value)
 
-typedef pit_value (*pit_nativefunc)(struct pit_runtime *rt, pit_value args, void *data);
-typedef struct { /* "heavy" values, the targets of refs */
-    enum pit_value_heavy_sort {
-        PIT_VALUE_HEAVY_SORT_CELL=0, /* value cell - basically, a "location" referred to by a variable binding */
-        PIT_VALUE_HEAVY_SORT_CONS, /* cons cell - a pair of two values */
-        PIT_VALUE_HEAVY_SORT_ARRAY, /* fixed-size array of values */
-        PIT_VALUE_HEAVY_SORT_BYTES, /* bytestring */
-        PIT_VALUE_HEAVY_SORT_FUNC, /* Lisp closure */
-        PIT_VALUE_HEAVY_SORT_NATIVEFUNC, /* native function */
-        PIT_VALUE_HEAVY_SORT_NATIVEDATA, /* native data (C pointer) */
-        PIT_VALUE_HEAVY_SORT_FORWARDING_POINTER /* forwarding pointer to to-space (during GC) */
-    } hsort;
-    union {
-        pit_value cell;
-        struct { pit_value car, cdr; } cons;
-        struct { pit_value *data; i64 len; } array;
-        struct { u8 *data; i64 len; } bytes;
-        struct { pit_value env; pit_value args; pit_value arg_rest_nm; pit_value body; } func;
-        struct { pit_nativefunc f; void *data; } nativefunc;
-        struct { pit_value tag; void *data; } nativedata;
-        i64 forwarding_pointer;
-    } in;
-} pit_value_heavy;
+struct pit_runtime;
 
+/* symbol table entries. these are created/looked up when you intern a symbol */
 typedef struct {
     pit_value name; /* ref to bytestring */
     pit_value value; /* ref to cell */
     pit_value function; /* ref to cell */
     bool is_macro, is_special_form, is_keyword;
 } pit_symtab_entry;
+PIT_DECLARE_VEC(pit_symtab_entry)
+
+/* annotation attached to (some) heavy values detailing things like line numbers */
+typedef struct {
+    i64 line, column;
+} pit_annotation;
+typedef struct {
+    pit_ref ref;
+    pit_annotation annotation;
+} pit_annotated_ref;
+PIT_DECLARE_VEC(pit_annotated_ref)
+void pit_annotation_set(struct pit_runtime *rt, pit_ref ref, pit_annotation annotation);
+pit_annotated_ref *pit_annotation_get(struct pit_runtime *rt, pit_ref ref);
 
 /* "programs"; vectors of "instructions" for a very simple VM used by the evaluator */
 typedef struct {
@@ -66,26 +43,12 @@ typedef struct {
     } sort;
     union {
         pit_value literal;
-        i64 apply; /* arity of application */
+        struct { i64 arity; pit_annotated_ref *annotation; } apply; 
     } in;
 } pit_runtime_eval_ins;
 PIT_DECLARE_VEC(pit_runtime_eval_ins)
 void pit_runtime_eval_program_push_literal(struct pit_runtime *rt, pit_vec(pit_runtime_eval_ins) *s, pit_value x);
-void pit_runtime_eval_program_push_apply(struct pit_runtime *rt, pit_vec(pit_runtime_eval_ins) *s, i64 arity);
-
-/* annotation attached to (some) heavy values detaiking things like line numbers */
-typedef struct {
-    pit_ref ref;
-    i64 line;
-    i64 column;
-} pit_expr_annotation;
-typedef struct {
-    i64 capacity, next;
-    pit_expr_annotation data[];
-} pit_expr_annotations;
-pit_expr_annotations *pit_expr_annotations_new(u8 *buf, i64 buf_len);
-void pit_expr_annotations_push(pit_expr_annotations *s, pit_ref ref, i64 line, i64 column);
-pit_expr_annotation *pit_expr_annotations_lookup(pit_expr_annotations *s, pit_ref ref);
+void pit_runtime_eval_program_push_apply(struct pit_runtime *rt, pit_vec(pit_runtime_eval_ins) *s, i64 arity, pit_annotated_ref *annotation);
 
 typedef struct pit_runtime {
     /* interpreter state */
@@ -93,11 +56,10 @@ typedef struct pit_runtime {
     /* bytestrings and arrays are allocated at the end (descending), heavy values are allocated at the front */
     /* this allows us to iterate over only heavy values at the front (useful in Cheney's algorithm for GC */
     pit_arena *backbuffer; /* additional allocation, the same size as the heap (used by GC) */
-    pit_expr_annotations *annotations;
-    pit_expr_annotations *annotations_backbuffer;
-    pit_arena *symtab; i64 symtab_len; /* all symbols - effectively an array of pit_symtab_entry */
+    pit_vec(pit_annotated_ref) *annotations;
+    pit_vec(pit_annotated_ref) *backtrace; /* we reuse this vector for both backtraces and the GC */
+    pit_vec(pit_symtab_entry) *symtab;/* all symbols */
     /* temporary/"scratch" memory */
-    pit_arena *scratch; /* temporary arena used during parsing and evaluation */
     pit_vec(pit_value) *saved_bindings; /* stack used to save old values of bindings to be restored ("shallow binding") */
     pit_vec(pit_value) *expr_stack; /* stack of subexpressions to evaluate during evaluation */
     pit_vec(pit_value) *result_stack; /* stack of intermediate values during evaluation */
@@ -115,124 +77,20 @@ void pit_runtime_freeze(pit_runtime *rt); /* freeze the runtime at the current p
 void pit_runtime_reset(pit_runtime *rt); /* restore the runtime to the frozen point, resetting everything that has happened since */
 bool pit_runtime_print_error(pit_runtime *rt); /* return true if an error has occured, and print to stderr */
 
-i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable); /* if readable is true, try to produce output that can be machine-read (quotes on strings, etc) */
-#define pit_trace(rt, v) pit_trace_(rt, "Trace [" __FILE__ ":" PIT_STR(__LINE__) "] %s\n", v)
-void pit_trace_(pit_runtime *rt, char *format, pit_value v);
-pit_value pit_get_error(pit_runtime *rt);
+#define pit_debug_trace(rt, v) pit_debug_trace_(rt, "Trace [" __FILE__ ":" PIT_STR(__LINE__) "] %s\n", v)
+void pit_debug_trace_(pit_runtime *rt, char *format, pit_value v);
+pit_value pit_error_get(pit_runtime *rt);
 void pit_error(pit_runtime *rt, char *format, ...);
-
-/* working with small values */
-pit_value pit_value_new(pit_runtime *rt, enum pit_value_sort s, u64 data);
-#ifndef PIT_NO_DOUBLE
-double pit_as_double(pit_runtime *rt, pit_value v);
-pit_value pit_double_new(pit_runtime *rt, double d);
-#endif
-i64 pit_as_integer(pit_runtime *rt, pit_value v);
-pit_value pit_integer_new(pit_runtime *rt, i64 i);
-pit_value pit_bool_new(pit_runtime *rt, bool i);
-pit_symbol pit_as_symbol(pit_runtime *rt, pit_value v);
-pit_value pit_symbol_new(pit_runtime *rt, pit_symbol s);
-pit_ref pit_as_ref(pit_runtime *rt, pit_value v);
-pit_value pit_ref_new(pit_runtime *rt, pit_ref r);
-
-/* working with heavy values and refs */
-pit_value pit_heavy_new(pit_runtime *rt);
-pit_value_heavy *pit_deref(pit_runtime *rt, pit_ref p);
-
-/* convenient predicates */
-bool pit_is_integer(pit_runtime *rt, pit_value a);
-bool pit_is_double(pit_runtime *rt, pit_value a);
-bool pit_is_symbol(pit_runtime *rt, pit_value a);
-bool pit_is_value_heavy_sort(pit_runtime *rt, pit_value a, enum pit_value_heavy_sort e);
-bool pit_is_cell(pit_runtime *rt, pit_value a);
-bool pit_is_cons(pit_runtime *rt, pit_value a);
-bool pit_is_array(pit_runtime *rt, pit_value a);
-bool pit_is_bytes(pit_runtime *rt, pit_value a);
-bool pit_is_func(pit_runtime *rt, pit_value a);
-bool pit_is_nativefunc(pit_runtime *rt, pit_value a);
-bool pit_is_nativedata(pit_runtime *rt, pit_value a);
-bool pit_is_forwarding_pointer(pit_runtime *rt, pit_value a);
-bool pit_eq(pit_value a, pit_value b);
-bool pit_equal(pit_runtime *rt, pit_value a, pit_value b);
-
-/* working with binary data */
-pit_value pit_bytes_new(pit_runtime *rt, u8 *buf, i64 len);
-pit_value pit_bytes_new_cstr(pit_runtime *rt, char *s);
-pit_value pit_bytes_new_file(pit_runtime *rt, char *path);
-bool pit_bytes_match(pit_runtime *rt, pit_value v, u8 *buf, i64 len);
-i64 pit_as_bytes(pit_runtime *rt, pit_value v, u8 *buf, i64 maxlen);
-
-/* working with the symbol table */
-pit_value pit_intern(pit_runtime *rt, u8 *nm, i64 len);
-pit_value pit_intern_cstr(pit_runtime *rt, char *nm);
-pit_value pit_symbol_name(pit_runtime *rt, pit_value sym);
-bool pit_symbol_name_match(pit_runtime *rt, pit_value sym, u8 *buf, i64 len);
-bool pit_symbol_name_match_cstr(pit_runtime *rt, pit_value sym, char *s);
-pit_symtab_entry *pit_symtab_lookup(pit_runtime *rt, pit_value sym);
-pit_value pit_get_value_cell(pit_runtime *rt, pit_value sym);
-pit_value pit_get_function_cell(pit_runtime *rt, pit_value sym);
-pit_value pit_get(pit_runtime *rt, pit_value sym);
-void pit_set(pit_runtime *rt, pit_value sym, pit_value v);
-pit_value pit_fget(pit_runtime *rt, pit_value sym);
-void pit_fset(pit_runtime *rt, pit_value sym, pit_value v);
-bool pit_is_symbol_macro(pit_runtime *rt, pit_value sym);
-void pit_symbol_is_macro(pit_runtime *rt, pit_value sym);
-void pit_mset(pit_runtime *rt, pit_value sym, pit_value v);
-bool pit_is_symbol_special_form(pit_runtime *rt, pit_value sym);
-void pit_symbol_is_special_form(pit_runtime *rt, pit_value sym);
-void pit_sfset(pit_runtime *rt, pit_value sym, pit_value v);
-void pit_bind(pit_runtime *rt, pit_value sym, pit_value v);
-pit_value pit_unbind(pit_runtime *rt, pit_value sym);
-
-/* working with cells */
-pit_value pit_cell_new(pit_runtime *rt, pit_value v);
-pit_value pit_cell_get(pit_runtime *rt, pit_value cell, pit_value sym);
-void pit_cell_set(pit_runtime *rt, pit_value cell, pit_value v, pit_value sym);
-
-/* working with arrays */
-pit_value pit_array_new(pit_runtime *rt, i64 len);
-pit_value pit_array_from_buf(pit_runtime *rt, pit_value *xs, i64 len);
-i64 pit_array_len(pit_runtime *rt, pit_value arr);
-pit_value pit_array_get(pit_runtime *rt, pit_value arr, i64 idx);
-pit_value pit_array_set(pit_runtime *rt, pit_value arr, i64 idx, pit_value v);
-
-/* working with cons cells */
-pit_value pit_cons(pit_runtime *rt, pit_value car, pit_value cdr);
-pit_value pit_list(pit_runtime *rt, i64 num, ...);
-i64 pit_list_len(pit_runtime *rt, pit_value xs);
-pit_value pit_car(pit_runtime *rt, pit_value v);
-pit_value pit_cdr(pit_runtime *rt, pit_value v);
-void pit_setcar(pit_runtime *rt, pit_value v, pit_value x);
-void pit_setcdr(pit_runtime *rt, pit_value v, pit_value x);
-pit_value pit_append(pit_runtime *rt, pit_value xs, pit_value ys);
-pit_value pit_reverse(pit_runtime *rt, pit_value xs);
-pit_value pit_contains_eq(pit_runtime *rt, pit_value needle, pit_value haystack);
-pit_value pit_contains_equal(pit_runtime *rt, pit_value needle, pit_value haystack);
-pit_value pit_plist_get(pit_runtime *rt, pit_value k, pit_value vs);
-
-/* working with functions */
-pit_value pit_free_vars(pit_runtime *rt, pit_value args, pit_value body);
-pit_value pit_lambda(pit_runtime *rt, pit_value args, pit_value body);
-pit_value pit_nativefunc_new_with_data(pit_runtime *rt, pit_nativefunc f, void *data);
-pit_value pit_nativefunc_new(pit_runtime *rt, pit_nativefunc f);
-pit_value pit_apply(pit_runtime *rt, pit_value f, pit_value args);
-
-/* working with native data */
-pit_value pit_nativedata_new(pit_runtime *rt, pit_value tag, void *d);
-void *pit_nativedata_get(pit_runtime *rt, pit_value tag, pit_value v);
-
-/* evaluation! */
-pit_value pit_expand_macros(pit_runtime *rt, pit_value top);
-pit_value pit_eval(pit_runtime *rt, pit_value e);
-
-/* garbage collection */
-void pit_collect_garbage(pit_runtime *rt);
 
 /* repl / file loading */
 pit_value pit_load_file(pit_runtime *rt, char *path);
 void pit_repl(pit_runtime *rt);
 
-/* test entrypoint */
-int pit_runtime_test(u8 *out, i64 out_len, u8 *buf, i64 len);
+#include <lcq/pit/runtime/value.h>
+#include <lcq/pit/runtime/symtab.h>
+#include <lcq/pit/runtime/dump.h>
+#include <lcq/pit/runtime/macroexpand.h>
+#include <lcq/pit/runtime/eval.h>
+#include <lcq/pit/runtime/gc.h>
 
 #endif

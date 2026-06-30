@@ -24,11 +24,13 @@ static bool is_more_input(pit_lexer *st) {
 }
 
 static int is_symchar(int c) {
-    return c != '(' && c != ')' && c != '.' && c != '\'' && c != '"' && pit_ctype_isprint(c) && !pit_ctype_isspace(c);
+    return c != '(' && c != ')' && c != '.' && c != '\'' && c != '"'
+        && pit_libc_ctype_isprint(c)
+        && !pit_libc_ctype_isspace(c);
 }
 
 static int is_hexdigit(int c) {
-    return pit_ctype_isdigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    return pit_libc_ctype_isdigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
 static char peek(pit_lexer *st) {
@@ -93,7 +95,7 @@ restart:
         advance(st);
         return PIT_LEX_TOKEN_STRING_LITERAL;
     default: {
-        if (pit_ctype_isspace(c)) goto restart;
+        if (pit_libc_ctype_isspace(c)) goto restart;
         pit_lex_token ret = PIT_LEX_TOKEN_INTEGER_LITERAL;
         int num_idx = 0;
         bool hex = false;
@@ -117,7 +119,7 @@ restart:
                     }
                     break;
                 }
-                if (!(pit_ctype_isdigit(c) || (hex && is_hexdigit(c)))) ret = PIT_LEX_TOKEN_SYMBOL;
+                if (!(pit_libc_ctype_isdigit(c) || (hex && is_hexdigit(c)))) ret = PIT_LEX_TOKEN_SYMBOL;
                 ++num_idx;
             } while (c = peek(st), match(st, is_symchar));
         }
@@ -129,7 +131,7 @@ restart:
 
 void pit_lex_cstr(pit_lexer *ret, char *buf) {
     ret->input = buf;
-    ret->len = (i64) pit_string_strlen(buf);
+    ret->len = (i64) pit_libc_string_strlen(buf);
     ret->start = 0;
     ret->end = 0;
     ret->line = ret->start_line = 1;

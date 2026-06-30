@@ -8,7 +8,7 @@ override LDFLAGS += -g -static
 
 BUILD = build_$(CC)
 
-SRCS_CORE := src/utils.c src/lexer.c src/parser.c src/runtime.c src/library.c
+SRCS_CORE := src/utils.c src/arena.c src/lexer.c src/parser.c src/runtime.c src/library.c
 OBJECTS_CORE := $(SRCS_CORE:src/%.c=$(BUILD)/%.o)
 LIB_CORE := libcolonq-pit.a
 SRCS_NATIVE := src/native.c

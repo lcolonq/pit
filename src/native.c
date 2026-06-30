@@ -51,7 +51,7 @@ pit_value pit_bytes_new_file(pit_runtime *rt, char *path) {
     fseek(f, 0, SEEK_END);
     i64 len = ftell(f);
     fseek(f, 0, SEEK_SET);
-    u8 *dest = pit_arena_alloc_bulk(rt->heap, len);
+    u8 *dest = pit_arena_alloc_array(rt->heap, len);
     if (!dest) { pit_error(rt, "failed to allocate bytes"); fclose(f); return PIT_NIL; }
     if ((size_t) len != fread(dest, sizeof(char), (size_t) len, f)) {
         fclose(f);

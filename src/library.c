@@ -1,3 +1,4 @@
+#include <lcq/pit/vec.h>
 #include <lcq/pit/lexer.h>
 #include <lcq/pit/parser.h>
 #include <lcq/pit/runtime.h>
@@ -12,9 +13,11 @@ static pit_value impl_sf_if(pit_runtime *rt, pit_value args, void *data) {
     (void) data;
     pit_value c = pit_car(rt, args);
     if (pit_eval(rt, c) != PIT_NIL) {
-        pit_values_push(rt, rt->expr_stack, pit_car(rt, pit_cdr(rt, args)));
+        if (pit_vec_push(pit_value)(rt->expr_stack, pit_car(rt, pit_cdr(rt, args))) < 0)
+            pit_error(rt, "in special form \"if\": evaluation stack overflow");
     } else {
-        pit_values_push(rt, rt->expr_stack, pit_car(rt, pit_cdr(rt, pit_cdr(rt, args))));
+        if (pit_vec_push(pit_value)(rt->expr_stack, pit_car(rt, pit_cdr(rt, pit_cdr(rt, args)))) < 0)
+            pit_error(rt, "in special form \"if\": evaluation stack overflow");
     }
     return PIT_NIL;
 }
@@ -24,14 +27,14 @@ static pit_value impl_sf_cond(pit_runtime *rt, pit_value args, void *data) {
         pit_value clause = pit_car(rt, args);
         pit_value cond = pit_car(rt, clause);
         if (pit_eval(rt, cond) != PIT_NIL) {
-            pit_values_push(rt, rt->expr_stack,
-                pit_cons(rt, pit_intern_cstr(rt, "progn"), pit_cdr(rt, clause))
-            );
+            if (pit_vec_push(pit_value)(rt->expr_stack, pit_cons(rt, pit_intern_cstr(rt, "progn"), pit_cdr(rt, clause))) < 0)
+                pit_error(rt, "in special form \"cond\": evaluation stack overflow");
             return PIT_NIL;
         }
         args = pit_cdr(rt, args);
     }
-    pit_values_push(rt, rt->expr_stack, PIT_NIL);
+    if (pit_vec_push(pit_value)(rt->expr_stack, PIT_NIL) < 0)
+        pit_error(rt, "in special form \"cond\": evaluation stack overflow");
     return PIT_NIL;
 }
 static pit_value impl_sf_progn(pit_runtime *rt, pit_value args, void *data) {
@@ -99,7 +102,7 @@ static pit_value impl_m_defstruct(pit_runtime *rt, pit_value args, void *data) {
     if (nm_len < 0) return PIT_NIL;
     nm_str[nm_len] = 0;
     /* constructor */
-    pit_string_snprintf(buf, sizeof(buf), ":%s", nm_str);
+    pit_libc_string_snprintf(buf, sizeof(buf), ":%s", nm_str);
     aargs = pit_cons(rt, pit_intern_cstr(rt, buf), pit_cons(rt, pit_intern_cstr(rt, "array"), PIT_NIL));
     fields = pit_cdr(rt, args);
     while (fields != PIT_NIL) {
@@ -109,14 +112,14 @@ static pit_value impl_m_defstruct(pit_runtime *rt, pit_value args, void *data) {
         );
         if (field_len < 0) return PIT_NIL;
         field_str[field_len] = 0;
-        pit_string_snprintf(buf, sizeof(buf), ":%s", field_str);
+        pit_libc_string_snprintf(buf, sizeof(buf), ":%s", field_str);
         aargs = pit_cons(rt,
             pit_list(rt, 3, pit_intern_cstr(rt, "plist/get"), pit_intern_cstr(rt, buf), pit_intern_cstr(rt, "kwargs")),
             aargs
         );
         fields = pit_cdr(rt, fields);
     }
-    pit_string_snprintf(buf, sizeof(buf), "%s/new", nm_str);
+    pit_libc_string_snprintf(buf, sizeof(buf), "%s/new", nm_str);
     df = pit_list(rt, 4,
         pit_intern_cstr(rt, "defun!"),
         pit_intern_cstr(rt, buf),
@@ -135,7 +138,7 @@ static pit_value impl_m_defstruct(pit_runtime *rt, pit_value args, void *data) {
         if (field_len < 0) return PIT_NIL;
         field_str[field_len] = 0;
         /* getter */
-        pit_string_snprintf(buf, sizeof(buf), "%s/get-%s", nm_str, field_str);
+        pit_libc_string_snprintf(buf, sizeof(buf), "%s/get-%s", nm_str, field_str);
         df = pit_list(rt, 4,
             pit_intern_cstr(rt, "defun!"),
             pit_intern_cstr(rt, buf),
@@ -148,7 +151,7 @@ static pit_value impl_m_defstruct(pit_runtime *rt, pit_value args, void *data) {
         );
         ret = pit_cons(rt, df, ret);
         /* setter */
-        pit_string_snprintf(buf, sizeof(buf), "%s/set-%s!", nm_str, field_str);
+        pit_libc_string_snprintf(buf, sizeof(buf), "%s/set-%s!", nm_str, field_str);
         df = pit_list(rt, 4,
             pit_intern_cstr(rt, "defun!"),
             pit_intern_cstr(rt, buf),
@@ -567,7 +570,7 @@ static pit_value impl_array(pit_runtime *rt, pit_value args, void *data) {
     i64 scratch_reset = rt->scratch->next;
     i64 len = 0;
     while (args != PIT_NIL) {
-        pit_value *cell = pit_arena_alloc_bulk(rt->scratch, sizeof(pit_value));
+        pit_value *cell = pit_arena_alloc_array(rt->scratch, sizeof(pit_value));
         *cell = pit_car(rt, args);
         len += 1;
         args = pit_cdr(rt, args);

@@ -3,6 +3,8 @@
 
 #include <lcq/pit/types.h>
 #include <lcq/pit/utils.h>
+#include <lcq/pit/vec.h>
+#include <lcq/pit/arena.h>
 #include <lcq/pit/lexer.h>
 
 struct pit_runtime;
@@ -23,13 +25,7 @@ typedef u64 pit_value;
 enum pit_value_sort pit_value_sort(pit_value v);
 u64 pit_value_data(pit_value v);
 
-typedef struct {
-    i64 capacity, next;
-    pit_value data[];
-} pit_values;
-pit_values *pit_values_new(u8 *buf, i64 buf_len);
-void pit_values_push(struct pit_runtime *rt, pit_values *s, pit_value x);
-pit_value pit_values_pop(struct pit_runtime *rt, pit_values *s);
+PIT_DECLARE_VEC(pit_value)
 
 typedef pit_value (*pit_nativefunc)(struct pit_runtime *rt, pit_value args, void *data);
 typedef struct { /* "heavy" values, the targets of refs */
@@ -65,21 +61,17 @@ typedef struct {
 /* "programs"; vectors of "instructions" for a very simple VM used by the evaluator */
 typedef struct {
     enum {
-        EVAL_PROGRAM_ENTRY_LITERAL,
-        EVAL_PROGRAM_ENTRY_APPLY
+        PIT_RUNTIME_EVAL_INS_LITERAL,
+        PIT_RUNTIME_EVAL_INS_APPLY
     } sort;
     union {
         pit_value literal;
         i64 apply; /* arity of application */
     } in;
-} pit_runtime_eval_program_entry;
-typedef struct {
-    i64 capacity, next;
-    pit_runtime_eval_program_entry data[];
-} pit_runtime_eval_program;
-pit_runtime_eval_program *pit_runtime_eval_program_new(u8 *buf, i64 buf_len);
-void pit_runtime_eval_program_push_literal(struct pit_runtime *rt, pit_runtime_eval_program *s, pit_value x);
-void pit_runtime_eval_program_push_apply(struct pit_runtime *rt, pit_runtime_eval_program *s, i64 arity);
+} pit_runtime_eval_ins;
+PIT_DECLARE_VEC(pit_runtime_eval_ins)
+void pit_runtime_eval_program_push_literal(struct pit_runtime *rt, pit_vec(pit_runtime_eval_ins) *s, pit_value x);
+void pit_runtime_eval_program_push_apply(struct pit_runtime *rt, pit_vec(pit_runtime_eval_ins) *s, i64 arity);
 
 /* annotation attached to (some) heavy values detaiking things like line numbers */
 typedef struct {
@@ -106,10 +98,10 @@ typedef struct pit_runtime {
     pit_arena *symtab; i64 symtab_len; /* all symbols - effectively an array of pit_symtab_entry */
     /* temporary/"scratch" memory */
     pit_arena *scratch; /* temporary arena used during parsing and evaluation */
-    pit_values *saved_bindings; /* stack used to save old values of bindings to be restored ("shallow binding") */
-    pit_values *expr_stack; /* stack of subexpressions to evaluate during evaluation */
-    pit_values *result_stack; /* stack of intermediate values during evaluation */
-    pit_runtime_eval_program *program; /* intermediate stack-based program constructed during evaluation */
+    pit_vec(pit_value) *saved_bindings; /* stack used to save old values of bindings to be restored ("shallow binding") */
+    pit_vec(pit_value) *expr_stack; /* stack of subexpressions to evaluate during evaluation */
+    pit_vec(pit_value) *result_stack; /* stack of intermediate values during evaluation */
+    pit_vec(pit_runtime_eval_ins) *program; /* intermediate stack-based program constructed during evaluation */
     /* bookkeeping */
     /* "frozen" values offsets: values before these offsets are immutable, and we can reset here later */
     i64 frozen_values, frozen_symtab;

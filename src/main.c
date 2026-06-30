@@ -9,7 +9,6 @@
 
 int main(int argc, char **argv) {
     i64 sz = 256 * 1024 * 1024;
-    // i64 sz = 32 * 1024;
     u8 *buf = malloc((size_t) sz);
     pit_runtime *rt = pit_runtime_new(buf, sz);
     pit_install_library_essential(rt);

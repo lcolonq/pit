@@ -39,10 +39,10 @@ pit_runtime *pit_runtime_new(u8 *buf, i64 len) {
     ret->symtab = pit_arena_new(pit_arena_alloc_back(a, symtab_size), symtab_size, sizeof(pit_symtab_entry));
     ret->symtab_len = 0;
     ret->scratch = pit_arena_new(pit_arena_alloc_back(a, scratch_size), scratch_size, sizeof(u8));
-    ret->expr_stack = pit_values_new(pit_arena_alloc_back(a, stack_size), stack_size);
-    ret->result_stack = pit_values_new(pit_arena_alloc_back(a, stack_size), stack_size);
-    ret->program = pit_runtime_eval_program_new(pit_arena_alloc_back(a, stack_size), stack_size);
-    ret->saved_bindings = pit_values_new(pit_arena_alloc_back(a, stack_size), stack_size);
+    ret->expr_stack = pit_vec_new(pit_value)(pit_arena_alloc_back(a, stack_size), stack_size);
+    ret->result_stack = pit_vec_new(pit_value)(pit_arena_alloc_back(a, stack_size), stack_size);
+    ret->program = pit_vec_new(pit_runtime_eval_ins)(pit_arena_alloc_back(a, stack_size), stack_size);
+    ret->saved_bindings = pit_vec_new(pit_value)(pit_arena_alloc_back(a, stack_size), stack_size);
     ret->frozen_values = 0;
     ret->frozen_symtab = 0;
     ret->error = PIT_NIL;
@@ -73,12 +73,12 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
     switch (pit_value_sort(v)) {
     case PIT_VALUE_SORT_DOUBLE:
         #ifndef PIT_NO_DOUBLE
-        return pit_string_snprintf(buf, (size_t) len, "%lf", pit_as_double(rt, v));
+        return pit_libc_string_snprintf(buf, (size_t) len, "%lf", pit_as_double(rt, v));
         #else
         return pit_string_snprintf(buf, (size_t) len, "<unsupported double>");
         #endif
     case PIT_VALUE_SORT_INTEGER:
-        return pit_string_snprintf(buf, (size_t) len, "%ld", pit_as_integer(rt, v));
+        return pit_libc_string_snprintf(buf, (size_t) len, "%ld", pit_as_integer(rt, v));
     case PIT_VALUE_SORT_SYMBOL: {
         pit_symtab_entry *ent = pit_symtab_lookup(rt, v);
         if (ent
@@ -91,7 +91,7 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
             }
             return i;
         } else {
-            return pit_string_snprintf(buf, (size_t) len, "<broken symbol %ld>", pit_as_symbol(rt, v));
+            return pit_libc_string_snprintf(buf, (size_t) len, "<broken symbol %ld>", pit_as_symbol(rt, v));
         }
     }
     case PIT_VALUE_SORT_REF: {
@@ -99,7 +99,7 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
         char *end = buf + len;
         char *start = buf;
         h = pit_deref(rt, r);
-        if (!h) pit_string_snprintf(buf, (size_t) len, "<ref %ld>", r);
+        if (!h) pit_libc_string_snprintf(buf, (size_t) len, "<ref %ld>", r);
         else {
             switch (h->hsort) {
             case PIT_VALUE_HEAVY_SORT_CELL: {
@@ -116,7 +116,7 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
                         CHECK_BUF_LABEL(list_end); *(buf++) = ' ';
                         CHECK_BUF_LABEL(list_end); buf += pit_dump(rt, buf, end - buf, pit_car(rt, cur), readable);
                     } else {
-                        CHECK_BUF_LABEL(list_end); buf += pit_string_snprintf(buf, (size_t) (end - buf), " . ");
+                        CHECK_BUF_LABEL(list_end); buf += pit_libc_string_snprintf(buf, (size_t) (end - buf), " . ");
                         CHECK_BUF_LABEL(list_end); buf += pit_dump(rt, buf, end - buf, cur, readable);
                     }
                 } while (!pit_eq((cur = pit_cdr(rt, cur)), PIT_NIL));
@@ -155,7 +155,7 @@ i64 pit_dump(pit_runtime *rt, char *buf, i64 len, pit_value v, bool readable) {
                 return i;
             }
             default:
-                return pit_string_snprintf(buf, (size_t) len, "<ref %ld>", r);
+                return pit_libc_string_snprintf(buf, (size_t) len, "<ref %ld>", r);
             }
         }
         break;
@@ -175,7 +175,7 @@ void pit_error(pit_runtime *rt, char *format, ...) {
         char buf[1024] = {0};
         va_list vargs;
         va_start(vargs, format);
-        pit_string_snprintf(buf, sizeof(buf), format, vargs);
+        pit_libc_string_snprintf(buf, sizeof(buf), format, vargs);
         va_end(vargs);
         rt->error = PIT_T; /* we set the error now to prevent infinite recursion */
         rt->error = pit_bytes_new_cstr(rt, buf); /* in case this errs also */
@@ -260,7 +260,7 @@ pit_value pit_ref_new(pit_runtime *rt, pit_ref r) {
 }
 
 pit_value pit_heavy_new(pit_runtime *rt) {
-    i64 idx = pit_arena_alloc_idx(rt->heap);
+    pit_arena_index idx = pit_arena_alloc_index(rt->heap);
     if (idx < 0) {
         pit_error(rt, "failed to allocate space for heavy value");
         return PIT_NIL;
@@ -378,7 +378,7 @@ bool pit_equal(pit_runtime *rt, pit_value a, pit_value b) {
 pit_value pit_bytes_new(pit_runtime *rt, u8 *buf, i64 len) {
     u8 *dest = pit_arena_alloc_back(rt->heap, len);
     if (!dest) { pit_error(rt, "failed to allocate bytes"); return PIT_NIL; }
-    pit_string_memcpy(dest, buf, (size_t) len);
+    pit_libc_string_memcpy(dest, buf, (size_t) len);
     pit_value ret = pit_heavy_new(rt);
     pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, ret));
     if (!h) { pit_error(rt, "failed to create new heavy value for bytes"); return PIT_NIL; }
@@ -388,7 +388,7 @@ pit_value pit_bytes_new(pit_runtime *rt, u8 *buf, i64 len) {
     return ret;
 }
 pit_value pit_bytes_new_cstr(pit_runtime *rt, char *s) {
-    return pit_bytes_new(rt, (u8 *) s, (i64) pit_string_strlen(s));
+    return pit_bytes_new(rt, (u8 *) s, (i64) pit_libc_string_strlen(s));
 }
 /* return true if v is a reference to bytes that are the same as those in buf */
 bool pit_bytes_match(pit_runtime *rt, pit_value v, u8 *buf, i64 len) {
@@ -425,7 +425,7 @@ pit_value pit_intern(pit_runtime *rt, u8 *nm, i64 len) {
         if (!sent) { pit_error(rt, "corrupted symbol table"); return PIT_NIL; }
         if (pit_bytes_match(rt, sent->name, nm, len)) return pit_symbol_new(rt, sidx);
     }
-    i64 idx = pit_arena_alloc_idx(rt->symtab);
+    pit_arena_index idx = pit_arena_alloc_index(rt->symtab);
     pit_symtab_entry *ent = pit_arena_get(rt->symtab, idx);
     if (!ent) { pit_error(rt, "failed to allocate symtab entry"); return PIT_NIL; }
     ent->name = pit_bytes_new(rt, nm, len);
@@ -438,7 +438,7 @@ pit_value pit_intern(pit_runtime *rt, u8 *nm, i64 len) {
     return pit_symbol_new(rt, idx);
 }
 pit_value pit_intern_cstr(pit_runtime *rt, char *nm) {
-    return pit_intern(rt, (u8 *) nm, (i64) pit_string_strlen(nm));
+    return pit_intern(rt, (u8 *) nm, (i64) pit_libc_string_strlen(nm));
 }
 pit_value pit_symbol_name(pit_runtime *rt, pit_value sym) {
     pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
@@ -451,7 +451,7 @@ bool pit_symbol_name_match(pit_runtime *rt, pit_value sym, u8 *buf, i64 len) {
     return pit_bytes_match(rt, ent->name, buf, len);
 }
 bool pit_symbol_name_match_cstr(pit_runtime *rt, pit_value sym, char *s) {
-    return pit_symbol_name_match(rt, sym, (u8 *) s, (i64) pit_string_strlen(s));
+    return pit_symbol_name_match(rt, sym, (u8 *) s, (i64) pit_libc_string_strlen(s));
 }
 pit_symtab_entry *pit_symtab_lookup(pit_runtime *rt, pit_value sym) {
     pit_symbol s = pit_as_symbol(rt, sym);
@@ -525,14 +525,14 @@ void pit_bind(pit_runtime *rt, pit_value sym, pit_value cell) {
     /* although we cannot set frozen symbols, we can still bind them temporarily - no need to check */
     pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
     if (!ent) { pit_error(rt, "bad symbol"); return; }
-    pit_values_push(rt, rt->saved_bindings, ent->value);
+    if (pit_vec_push(pit_value)(rt->saved_bindings, ent->value) < 0) pit_error(rt, "binding stack overflow");
     ent->value = cell;
 }
 pit_value pit_unbind(pit_runtime *rt, pit_value sym) {
     pit_symtab_entry *ent = pit_symtab_lookup(rt, sym);
     if (!ent) { pit_error(rt, "bad symbol"); return PIT_NIL; }
     pit_value old = ent->value;
-    ent->value = pit_values_pop(rt, rt->saved_bindings);
+    if (pit_vec_pop(pit_value)(rt->saved_bindings, &ent->value) < 0) pit_error(rt, "binding stack underflow");
     return old;
 }
 
@@ -582,7 +582,7 @@ void pit_cell_set(pit_runtime *rt, pit_value cell, pit_value v, pit_value sym) {
 pit_value pit_array_new(pit_runtime *rt, i64 len) {
     if (len < 0) { pit_error(rt, "failed to create array of negative size"); return PIT_NIL; }
     i64 byte_len = 0; pit_mul(&byte_len, sizeof(pit_value), len);
-    pit_value *dest = pit_arena_alloc_bulk(rt->heap, byte_len);
+    pit_value *dest = pit_arena_alloc_array(rt->heap, byte_len);
     if (!dest) { pit_error(rt, "failed to allocate array"); return PIT_NIL; }
     for (i64 i = 0; i < len; ++i) dest[i] = PIT_NIL;
     pit_value ret = pit_heavy_new(rt);
@@ -597,7 +597,7 @@ pit_value pit_array_from_buf(pit_runtime *rt, pit_value *xs, i64 len) {
     pit_value ret = pit_array_new(rt, len);
     pit_value_heavy *h = pit_deref(rt, pit_as_ref(rt, ret));
     if (!h) { pit_error(rt, "failed to deref heavy value for array"); return PIT_NIL; }
-    pit_string_memcpy((u8 *) h->in.array.data, (u8 *) xs, (size_t) len * (size_t) sizeof(pit_value));
+    pit_libc_string_memcpy((u8 *) h->in.array.data, (u8 *) xs, (size_t) len * (size_t) sizeof(pit_value));
     return ret;
 }
 i64 pit_array_len(pit_runtime *rt, pit_value arr) {
@@ -739,11 +739,14 @@ pit_value pit_plist_get(pit_runtime *rt, pit_value k, pit_value vs) {
 pit_value pit_free_vars(pit_runtime *rt, pit_value initial_bound, pit_value body) {
     i64 expr_stack_reset = rt->expr_stack->next;
     pit_value ret = PIT_NIL;
-    pit_values_push(rt, rt->expr_stack, pit_cons(rt, initial_bound, body));
+    if (pit_vec_push(pit_value)(rt->expr_stack, pit_cons(rt, initial_bound, body)) < 0)
+        pit_error(rt, "free variable search stack overflow");
     while (rt->expr_stack->next > expr_stack_reset) {
-        pit_value boundscur = pit_values_pop(rt, rt->expr_stack);
-        pit_value bound = pit_car(rt, boundscur);
-        pit_value cur = pit_cdr(rt, boundscur);
+        pit_value boundscur, bound, cur;
+        if (pit_vec_pop(pit_value)(rt->expr_stack, &boundscur) < 0)
+            pit_error(rt, "free variable search stack underflow");
+        bound = pit_car(rt, boundscur);
+        cur = pit_cdr(rt, boundscur);
         if (pit_is_cons(rt, cur)) {
             pit_value fsym = pit_car(rt, cur);
             bool is_symbol = pit_is_symbol(rt, fsym);
@@ -752,7 +755,8 @@ pit_value pit_free_vars(pit_runtime *rt, pit_value initial_bound, pit_value body
                 pit_value new_bound = pit_append(rt, pit_car(rt, fargs), bound);
                 fargs = pit_cdr(rt, fargs);
                 while (fargs != PIT_NIL) {
-                    pit_values_push(rt, rt->expr_stack, pit_cons(rt, new_bound, pit_car(rt, fargs)));
+                    if (pit_vec_push(pit_value)(rt->expr_stack, pit_cons(rt, new_bound, pit_car(rt, fargs))) < 0)
+                        pit_error(rt, "free variable search stack overflow");
                     fargs = pit_cdr(rt, fargs);
                 }
             } else if (is_symbol && pit_symbol_name_match_cstr(rt, fsym, "quote")) {
@@ -760,11 +764,13 @@ pit_value pit_free_vars(pit_runtime *rt, pit_value initial_bound, pit_value body
                    if we add other special forms, make sure to consider them here if necessary! */
             } else {
                 while (fargs != PIT_NIL) {
-                    pit_values_push(rt, rt->expr_stack, pit_cons(rt, bound, pit_car(rt, fargs)));
+                    if (pit_vec_push(pit_value)(rt->expr_stack, pit_cons(rt, bound, pit_car(rt, fargs))) < 0)
+                        pit_error(rt, "free variable search stack overflow");
                     fargs = pit_cdr(rt, fargs);
                 }
                 if (!is_symbol) {
-                    pit_values_push(rt, rt->expr_stack, pit_cons(rt, bound, fsym));
+                    if (pit_vec_push(pit_value)(rt->expr_stack, pit_cons(rt, bound, fsym)) < 0)
+                        pit_error(rt, "free variable search stack overflow");
                 }
             }
         } else if (pit_is_symbol(rt, cur)) {
@@ -921,53 +927,19 @@ void *pit_nativedata_get(pit_runtime *rt, pit_value tag, pit_value v) {
     return h->in.nativedata.data;
 }
 
-pit_values *pit_values_new(u8 *buf, i64 buf_len) {
-    uintptr_t base = (uintptr_t) buf;
-    uintptr_t aligned = pit_align_up(base, sizeof(void *));
-    pit_values *ret = (pit_values *) aligned;
-    uintptr_t data = aligned + sizeof(pit_values);
-    i64 offset = (i64) data - (i64) base;
-    i64 remaining = (i64) (buf_len - offset);
-    i64 cap = remaining / (i64) sizeof(pit_value);
-    ret->next = 0;
-    ret->capacity = cap;
-    return ret;
+void pit_runtime_eval_program_push_literal(pit_runtime *rt, pit_vec(pit_runtime_eval_ins) *s, pit_value x) {
+    pit_runtime_eval_ins ent;
+    ent.sort = PIT_RUNTIME_EVAL_INS_LITERAL;
+    ent.in.literal = x;
+    if (pit_vec_push(pit_runtime_eval_ins)(s, ent) < 0)
+        pit_error(rt, "evaluation program overflow");
 }
-void pit_values_push(pit_runtime *rt, pit_values *s, pit_value x) {
-    (void) rt;
-    s->data[s->next++] = x;
-    if (s->next >= s->capacity) { pit_error(rt, "evaluation stack overflow"); }
-}
-pit_value pit_values_pop(pit_runtime *rt, pit_values *s) {
-    if (s->next == 0) { pit_error(rt, "evaluation stack underflow"); return PIT_NIL; }
-    return s->data[--s->next];
-}
-
-pit_runtime_eval_program *pit_runtime_eval_program_new(u8 *buf, i64 buf_len) {
-    uintptr_t base = (uintptr_t) buf;
-    uintptr_t aligned = pit_align_up(base, sizeof(void *));
-    pit_runtime_eval_program *ret = (pit_runtime_eval_program *) aligned;
-    uintptr_t data = aligned + sizeof(pit_arena);
-    i64 offset = (i64) data - (i64) base;
-    i64 remaining = (i64) (buf_len - offset);
-    i64 cap = remaining / (i64) sizeof(pit_runtime_eval_program_entry);
-    ret->next = 0;
-    ret->capacity = cap;
-    return ret;
-}
-void pit_runtime_eval_program_push_literal(pit_runtime *rt, pit_runtime_eval_program *s, pit_value x) {
-    pit_runtime_eval_program_entry *ent = &s->data[s->next++];
-    ent->sort = EVAL_PROGRAM_ENTRY_LITERAL;
-    ent->in.literal = x;
-    if (s->next >= s->capacity) { pit_error(rt, "evaluation program overflow"); }
-    (void) rt;
-}
-void pit_runtime_eval_program_push_apply(pit_runtime *rt, pit_runtime_eval_program *s, i64 arity) {
-    pit_runtime_eval_program_entry *ent = &s->data[s->next++];
-    ent->sort = EVAL_PROGRAM_ENTRY_APPLY;
-    ent->in.apply = arity;
-    if (s->next >= s->capacity) { pit_error(rt, "evaluation program overflow"); }
-    (void) rt;
+void pit_runtime_eval_program_push_apply(pit_runtime *rt, pit_vec(pit_runtime_eval_ins) *s, i64 arity) {
+    pit_runtime_eval_ins ent;
+    ent.sort = PIT_RUNTIME_EVAL_INS_APPLY;
+    ent.in.apply = arity;
+    if (pit_vec_push(pit_runtime_eval_ins)(s, ent) < 0)
+        pit_error(rt, "evaluation program overflow");
 }
 
 pit_expr_annotations *pit_expr_annotations_new(u8 *buf, i64 buf_len) {
@@ -1000,11 +972,13 @@ pit_value pit_expand_macros(pit_runtime *rt, pit_value top) {
     i64 expr_stack_reset = rt->expr_stack->next;
     i64 result_stack_reset = rt->result_stack->next;
     i64 program_reset = rt->program->next;
-    pit_values_push(rt, rt->expr_stack, top);
+    if (pit_vec_push(pit_value)(rt->expr_stack, top) < 0)
+        pit_error(rt, "macro expansion stack overflow");
     while (rt->expr_stack->next > expr_stack_reset) {
         pit_value cur;
         if (rt->error != PIT_NIL) goto end;
-        cur = pit_values_pop(rt, rt->expr_stack);
+        if (pit_vec_pop(pit_value)(rt->expr_stack, &cur) < 0)
+            pit_error(rt, "macro expansion stack underflow");
         if (pit_is_cons(rt, cur)) {
             pit_value fsym = pit_car(rt, cur);
             bool is_symbol = pit_is_symbol(rt, fsym);
@@ -1012,7 +986,8 @@ pit_value pit_expand_macros(pit_runtime *rt, pit_value top) {
                 pit_value f = pit_fget(rt, fsym);
                 pit_value args = pit_cdr(rt, cur);
                 pit_value res = pit_apply(rt, f, args);
-                pit_values_push(rt, rt->expr_stack, res);
+                if (pit_vec_push(pit_value)(rt->expr_stack, res) < 0)
+                    pit_error(rt, "macro expansion stack overflow");
             } else if (is_symbol && pit_symbol_name_match_cstr(rt, fsym, "defer")) {
                 pit_value args = pit_cdr(rt, cur);
                 pit_runtime_eval_program_push_literal(rt, rt->program, pit_car(rt, args));
@@ -1023,10 +998,12 @@ pit_value pit_expand_macros(pit_runtime *rt, pit_value top) {
                 pit_value bindings = pit_car(rt, args);
                 pit_value body = pit_cdr(rt, args);
                 i64 argcount = 0;
-                pit_values_push(rt, rt->expr_stack, pit_list(rt, 2, pit_intern_cstr(rt, "defer"), bindings));
+                if (pit_vec_push(pit_value)(rt->expr_stack, pit_list(rt, 2, pit_intern_cstr(rt, "defer"), bindings)) < 0)
+                    pit_error(rt, "macro expansion stack overflow");
                 while (body != PIT_NIL) {
                     pit_value a = pit_car(rt, body);
-                    pit_values_push(rt, rt->expr_stack, a);
+                    if (pit_vec_push(pit_value)(rt->expr_stack, a) < 0)
+                        pit_error(rt, "macro expansion stack overflow");
                     body = pit_cdr(rt, body);
                     argcount += 1;
                 }
@@ -1037,12 +1014,14 @@ pit_value pit_expand_macros(pit_runtime *rt, pit_value top) {
                 i64 argcount = 0;
                 while (args != PIT_NIL) {
                     pit_value a = pit_car(rt, args);
-                    pit_values_push(rt, rt->expr_stack, a);
+                    if (pit_vec_push(pit_value)(rt->expr_stack, a) < 0)
+                        pit_error(rt, "macro expansion stack overflow");
                     args = pit_cdr(rt, args);
                     argcount += 1;
                 }
                 if (!is_symbol) {
-                    pit_values_push(rt, rt->expr_stack, fsym);
+                    if (pit_vec_push(pit_value)(rt->expr_stack, fsym) < 0)
+                        pit_error(rt, "macro expansion stack overflow");
                 }
                 pit_runtime_eval_program_push_apply(rt, rt->program, argcount);
                 if (is_symbol) {
@@ -1054,20 +1033,27 @@ pit_value pit_expand_macros(pit_runtime *rt, pit_value top) {
         }
     }
     for (i64 idx = rt->program->next - 1; idx >= program_reset; --idx) {
-        pit_runtime_eval_program_entry *ent;
+        pit_runtime_eval_ins *ent = pit_vec_get(pit_runtime_eval_ins)(rt->program, idx);
+        if (ent == NULL) pit_error(rt, "macro expansion program invalid");
         if (rt->error != PIT_NIL) goto end;
-        ent = &rt->program->data[idx];
         switch (ent->sort) {
-        case EVAL_PROGRAM_ENTRY_LITERAL:
-            pit_values_push(rt, rt->result_stack, ent->in.literal);
+        case PIT_RUNTIME_EVAL_INS_LITERAL:
+            if (pit_vec_push(pit_value)(rt->result_stack, ent->in.literal) < 0)
+                pit_error(rt, "macro expansion stack overflow");
             break;
-        case EVAL_PROGRAM_ENTRY_APPLY: {
-            pit_value f = pit_values_pop(rt, rt->result_stack);
+        case PIT_RUNTIME_EVAL_INS_APPLY: {
+            pit_value f = PIT_NIL;
             pit_value args = PIT_NIL;
+            if (pit_vec_pop(pit_value)(rt->result_stack, &f) < 0)
+                pit_error(rt, "macro expansion stack underflow");
             for (i64 i = 0; i < ent->in.apply; ++i) {
-                args = pit_cons(rt, pit_values_pop(rt, rt->result_stack), args);
+                pit_value a;
+                if (pit_vec_pop(pit_value)(rt->result_stack, &a) < 0)
+                    pit_error(rt, "macro expansion stack underflow");
+                args = pit_cons(rt, a, args);
             }
-            pit_values_push(rt, rt->result_stack, pit_cons(rt, f, args));
+            if (pit_vec_push(pit_value)(rt->result_stack, pit_cons(rt, f, args)) < 0)
+                pit_error(rt, "macro expansion stack overflow");
             break;
         }
         default:
@@ -1076,7 +1062,9 @@ pit_value pit_expand_macros(pit_runtime *rt, pit_value top) {
         }
     }
 end: {
-        pit_value ret = pit_values_pop(rt, rt->result_stack);
+        pit_value ret = PIT_NIL;
+        if (pit_vec_pop(pit_value)(rt->result_stack, &ret) < 0)
+            pit_error(rt, "macro expansion stack underflow");
         rt->expr_stack->next = expr_stack_reset;
         rt->result_stack->next = result_stack_reset;
         rt->program->next = program_reset;
@@ -1088,12 +1076,14 @@ pit_value pit_eval(pit_runtime *rt, pit_value top) {
     i64 expr_stack_reset = rt->expr_stack->next;
     i64 result_stack_reset = rt->result_stack->next;
     i64 program_reset = rt->program->next;
-    pit_values_push(rt, rt->expr_stack, top);
+    if (pit_vec_push(pit_value)(rt->expr_stack, top) < 0)
+        pit_error(rt, "evaluation stack overflow");
     /* first, convert the expression tree into "polish notation" in program */
     while (rt->expr_stack->next > expr_stack_reset) {
-        pit_value cur;
+        pit_value cur = PIT_NIL;
         if (rt->error != PIT_NIL) goto end;
-        cur = pit_values_pop(rt, rt->expr_stack);
+        if (pit_vec_pop(pit_value)(rt->expr_stack, &cur) < 0)
+            pit_error(rt, "evaluation stack underflow");
         if (pit_is_cons(rt, cur)) { /* compound expressions: function/macro application special forms */
             pit_value fsym = pit_car(rt, cur);
             bool is_symbol = pit_is_symbol(rt, fsym);
@@ -1117,17 +1107,20 @@ pit_value pit_eval(pit_runtime *rt, pit_value top) {
                 pit_value f = pit_fget(rt, fsym);
                 pit_value args = pit_cdr(rt, cur);
                 pit_value res = pit_apply(rt, f, args);
-                pit_values_push(rt, rt->expr_stack, res);
+                if (pit_vec_push(pit_value)(rt->expr_stack, res) < 0)
+                    pit_error(rt, "evaluation stack overflow");
             } else { /* normal functions */
                 pit_value args = pit_cdr(rt, cur);
                 i64 argcount = 0;
                 while (args != PIT_NIL) {
-                    pit_values_push(rt, rt->expr_stack, pit_car(rt, args));
+                    if (pit_vec_push(pit_value)(rt->expr_stack, pit_car(rt, args)) < 0)
+                        pit_error(rt, "evaluation stack overflow");
                     args = pit_cdr(rt, args);
                     argcount += 1;
                 }
                 if (!is_symbol) {
-                    pit_values_push(rt, rt->expr_stack, fsym);
+                    if (pit_vec_push(pit_value)(rt->expr_stack, fsym) < 0)
+                        pit_error(rt, "evaluation stack overflow");
                 }
                 pit_runtime_eval_program_push_apply(rt, rt->program, argcount);
                 if (is_symbol) {
@@ -1149,20 +1142,27 @@ pit_value pit_eval(pit_runtime *rt, pit_value top) {
     /* then, execute the polish notation program from right to left
        this has the nice consequence of putting the arguments in the right order */
     for (i64 idx = rt->program->next - 1; idx >= program_reset; --idx) {
-        pit_runtime_eval_program_entry *ent;
+        pit_runtime_eval_ins *ent = pit_vec_get(pit_runtime_eval_ins)(rt->program, idx);
+        if (ent == NULL) pit_error(rt, "evaluation program invalid");
         if (rt->error != PIT_NIL) goto end;
-        ent = &rt->program->data[idx];
         switch (ent->sort) {
-        case EVAL_PROGRAM_ENTRY_LITERAL:
-            pit_values_push(rt, rt->result_stack, ent->in.literal);
+        case PIT_RUNTIME_EVAL_INS_LITERAL:
+            if (pit_vec_push(pit_value)(rt->result_stack, ent->in.literal) < 0)
+                pit_error(rt, "evaluation result stack overflow");
             break;
-        case EVAL_PROGRAM_ENTRY_APPLY: {
-            pit_value f = pit_values_pop(rt, rt->result_stack);
+        case PIT_RUNTIME_EVAL_INS_APPLY: {
+            pit_value f = PIT_NIL;
             pit_value args = PIT_NIL;
+            if (pit_vec_pop(pit_value)(rt->result_stack, &f) < 0)
+                pit_error(rt, "evaluation result stack underflow");
             for (i64 i = 0; i < ent->in.apply; ++i) {
-                args = pit_cons(rt, pit_values_pop(rt, rt->result_stack), args);
+                pit_value a = PIT_NIL;
+                if (pit_vec_pop(pit_value)(rt->result_stack, &a) < 0)
+                    pit_error(rt, "evaluation result stack underflow");
+                args = pit_cons(rt, a, args);
             }
-            pit_values_push(rt, rt->result_stack, pit_apply(rt, f, args));
+            if (pit_vec_push(pit_value)(rt->result_stack, pit_apply(rt, f, args)) < 0)
+                pit_error(rt, "evaluation result stack underflow");
             break;
         }
         default:
@@ -1171,7 +1171,9 @@ pit_value pit_eval(pit_runtime *rt, pit_value top) {
         }
     }
 end: {
-        pit_value ret = pit_values_pop(rt, rt->result_stack);
+        pit_value ret = PIT_NIL;
+        if (pit_vec_pop(pit_value)(rt->result_stack, &ret) < 0)
+            pit_error(rt, "evaluation result stack underflow");
         rt->expr_stack->next = expr_stack_reset;
         rt->result_stack->next = result_stack_reset;
         rt->program->next = program_reset;
@@ -1215,8 +1217,8 @@ void pit_collect_garbage(pit_runtime *rt) {
         ent->function = gc_copy_value(rt, tospace, ent->function);
     }
     for (i64 i = 0; i < rt->saved_bindings->next; ++i) {
-        pit_value *v = &rt->saved_bindings->data[i];
-        *v = gc_copy_value(rt, tospace, *v);
+        pit_value *v = pit_vec_get(pit_value)(rt->saved_bindings, i);
+        if (v != NULL) *v = gc_copy_value(rt, tospace, *v); /* TODO handle failure here */
     }
     for (i64 scan = 0; scan < tospace->next; ++scan) {
         pit_value_heavy *h = pit_arena_get(tospace, scan);

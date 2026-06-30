@@ -1,4 +1,5 @@
 #include <lcq/pit/types.h>
+#include <lcq/pit/utils.h>
 #include <lcq/pit/lexer.h>
 #include <lcq/pit/parser.h>
 #include <lcq/pit/runtime.h>
@@ -31,7 +32,7 @@ static bool match(pit_parser *st, pit_lex_token t) {
 static void get_token_string(pit_parser *st, char *buf, i64 len) {
     i64 diff = st->cur.end - st->cur.start;
     i64 tlen = diff >= len ? len - 1 : diff;
-    pit_string_memcpy((u8 *) buf, (u8 *) st->lexer->input + st->cur.start, (size_t) tlen);
+    pit_libc_string_memcpy((u8 *) buf, (u8 *) st->lexer->input + st->cur.start, (size_t) tlen);
     buf[tlen] = 0;
 }
 
@@ -92,7 +93,7 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
                     return PIT_NIL;
                 }
             } else {
-                pit_value *cell = pit_arena_alloc_bulk(rt->scratch, sizeof(pit_value));
+                pit_value *cell = pit_arena_alloc_array(rt->scratch, sizeof(pit_value));
                 *cell = pit_parse(rt, st, eof);
             }
             if (rt->error != PIT_NIL || (eof != NULL && *eof)) {
@@ -122,7 +123,7 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
         i64 scratch_reset = rt->scratch->next;
         i64 len = 0;
         while (!match(st, PIT_LEX_TOKEN_RSQUARE)) {
-            pit_value *cell = pit_arena_alloc_bulk(rt->scratch, sizeof(pit_value));
+            pit_value *cell = pit_arena_alloc_array(rt->scratch, sizeof(pit_value));
             *cell = pit_parse(rt, st, eof);
             len += 1;
             if (rt->error != PIT_NIL || (eof != NULL && *eof)) {
@@ -169,7 +170,7 @@ pit_value pit_parse(pit_runtime *rt, pit_parser *st, bool *eof) {
     case PIT_LEX_TOKEN_STRING_LITERAL: {
         char buf[256] = {0};
         get_token_string(st, buf, sizeof(buf));
-        i64 len = (i64) pit_string_strlen(buf);
+        i64 len = (i64) pit_libc_string_strlen(buf);
         i64 cur = 0;
         for (i64 i = 1; i < len; ++i) {
             if (buf[i] == '\\' && i + 1 < len) buf[cur++] = buf[++i];

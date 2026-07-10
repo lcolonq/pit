@@ -79,8 +79,8 @@ static void check_invariants(pit_runtime *rt) {
     if (rt->result_stack->next != 0) {
         pit_error(rt, "leaked result_stack memory! %ld", rt->result_stack->next);
     }
-    if (rt->program->next != 0) {
-        pit_error(rt, "leaked program memory! %ld", rt->program->next);
+    if (rt->traversal->next != 0) {
+        pit_error(rt, "leaked traversal memory! %ld", rt->traversal->next);
     }
 }
 pit_value pit_load_file(pit_runtime *rt, char *path) {

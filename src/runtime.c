@@ -36,7 +36,7 @@ pit_runtime *pit_runtime_new(u8 *buf, i64 len) {
     ret->symtab = pit_vec_new(pit_symtab_entry)(pit_arena_alloc_back(a, symtab_size), symtab_size);
     ret->expr_stack = pit_vec_new(pit_value)(pit_arena_alloc_back(a, stack_size), stack_size);
     ret->result_stack = pit_vec_new(pit_value)(pit_arena_alloc_back(a, stack_size), stack_size);
-    ret->program = pit_vec_new(pit_runtime_eval_ins)(pit_arena_alloc_back(a, stack_size), stack_size);
+    ret->traversal = pit_vec_new(pit_traversal_entry)(pit_arena_alloc_back(a, stack_size), stack_size);
     ret->saved_bindings = pit_vec_new(pit_value)(pit_arena_alloc_back(a, stack_size), stack_size);
     ret->frozen_values = 0;
     ret->frozen_symtab = 0;
@@ -99,18 +99,25 @@ pit_annotated_ref *pit_annotation_get(struct pit_runtime *rt, pit_ref ref) {
     return NULL;
 }
 
-void pit_runtime_eval_program_push_literal(pit_runtime *rt, pit_vec(pit_runtime_eval_ins) *s, pit_value x) {
-    pit_runtime_eval_ins ent;
-    ent.sort = PIT_RUNTIME_EVAL_INS_LITERAL;
-    ent.in.literal = x;
-    if (pit_vec_push(pit_runtime_eval_ins)(s, ent) < 0)
-        pit_error(rt, "evaluation program overflow");
+void pit_traversal_push_value(struct pit_runtime *rt, pit_vec(pit_traversal_entry) *s, pit_value x) {
+    pit_traversal_entry ent;
+    ent.sort = PIT_TRAVERSAL_ENTRY_VALUE;
+    ent.in.value = x;
+    if (pit_vec_push(pit_traversal_entry)(s, ent) < 0)
+        pit_error(rt, "traversal overflow");
 }
-void pit_runtime_eval_program_push_apply(pit_runtime *rt, pit_vec(pit_runtime_eval_ins) *s, i64 arity, pit_annotated_ref *annotation) {
-    pit_runtime_eval_ins ent;
-    ent.sort = PIT_RUNTIME_EVAL_INS_APPLY;
-    ent.in.apply.arity = arity;
-    ent.in.apply.annotation = annotation;
-    if (pit_vec_push(pit_runtime_eval_ins)(s, ent) < 0)
-        pit_error(rt, "evaluation program overflow");
+void pit_traversal_push_dump_string(struct pit_runtime *rt, pit_vec(pit_traversal_entry) *s, char *m) {
+    pit_traversal_entry ent;
+    ent.sort = PIT_TRAVERSAL_ENTRY_DUMP_STRING;
+    ent.in.dump_string = m;
+    if (pit_vec_push(pit_traversal_entry)(s, ent) < 0)
+        pit_error(rt, "traversal overflow");
+}
+void pit_traversal_push_application(struct pit_runtime *rt, pit_vec(pit_traversal_entry) *s, i64 arity, pit_annotated_ref *annotation) {
+    pit_traversal_entry ent;
+    ent.sort = PIT_TRAVERSAL_ENTRY_APPLICATION;
+    ent.in.application.arity = arity;
+    ent.in.application.annotation = annotation;
+    if (pit_vec_push(pit_traversal_entry)(s, ent) < 0)
+        pit_error(rt, "traversal overflow");
 }

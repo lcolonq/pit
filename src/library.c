@@ -6,7 +6,7 @@
 
 static pit_value impl_sf_quote(pit_runtime *rt, pit_value args, void *data) {
     (void) data;
-    pit_runtime_eval_program_push_literal(rt, rt->program, pit_value_cons_car(rt, args));
+    pit_traversal_push_value(rt, rt->traversal, pit_value_cons_car(rt, args));
     return PIT_NIL;
 }
 static pit_value impl_sf_if(pit_runtime *rt, pit_value args, void *data) {
@@ -45,7 +45,7 @@ static pit_value impl_sf_progn(pit_runtime *rt, pit_value args, void *data) {
         final = pit_eval(rt, pit_value_cons_car(rt, bodyforms));
         bodyforms = pit_value_cons_cdr(rt, bodyforms);
     }
-    pit_runtime_eval_program_push_literal(rt, rt->program, final);
+    pit_traversal_push_value(rt, rt->traversal, final);
     return PIT_NIL;
 }
 static pit_value impl_sf_or(pit_runtime *rt, pit_value args, void *data) {
@@ -57,14 +57,14 @@ static pit_value impl_sf_or(pit_runtime *rt, pit_value args, void *data) {
         if (final != PIT_NIL) break;
         bodyforms = pit_value_cons_cdr(rt, bodyforms);
     }
-    pit_runtime_eval_program_push_literal(rt, rt->program, final);
+    pit_traversal_push_value(rt, rt->traversal, final);
     return PIT_NIL;
 }
 static pit_value impl_sf_lambda(pit_runtime *rt, pit_value args, void *data) {
     (void) data;
     pit_value as = pit_value_cons_car(rt, args);
     pit_value body = pit_value_cons_cdr(rt, args);
-    pit_runtime_eval_program_push_literal(rt, rt->program, pit_value_func_lambda(rt, as, body));
+    pit_traversal_push_value(rt, rt->traversal, pit_value_func_lambda(rt, as, body));
     return PIT_NIL;
 }
 static pit_value impl_m_defun(pit_runtime *rt, pit_value args, void *data) {

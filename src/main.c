@@ -7,6 +7,8 @@
 #include <lcq/pit/runtime.h>
 #include <lcq/pit/library.h>
 
+PIT_DECLARE_DEQUE(double)
+
 int main(int argc, char **argv) {
     i64 sz = 256 * 1024 * 1024;
     u8 *buf = malloc((size_t) sz);

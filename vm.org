@@ -1,0 +1,18 @@
+* what do we need in a little vm
+** how does it work currently?
+pit is a lisp
+pit code is represented by the interpreter as pit values
+what is a pit value?
+it's a u64 :)
+- could contain a double
+- could contain an integer (bits squeezed in the NaN part of the double)
+- could contain a symbol index (bits in NaN)
+** nonserializable
+- just put that shit in a lisp array :)
+- serialize with print and read :)
+  + or serialize in another way
+** what are the instructions?
+- symbols look up their value binding and push it to the stack
+- cons cells represent different operations
+  + (cons 'quote v) for some value v pushes v to the stack
+  + (cons 'apply a) for some arity a pops a+1 values from stack (funcalls top of stack symbol on the rest)

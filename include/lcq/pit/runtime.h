@@ -35,20 +35,23 @@ PIT_DECLARE_VEC(pit_annotated_ref)
 void pit_annotation_set(struct pit_runtime *rt, pit_ref ref, pit_annotation annotation);
 pit_annotated_ref *pit_annotation_get(struct pit_runtime *rt, pit_ref ref);
 
-/* "programs"; vectors of "instructions" for a very simple VM used by the evaluator */
+/* entries on a stack used when traversing trees of values */
 typedef struct {
     enum {
-        PIT_RUNTIME_EVAL_INS_LITERAL,
-        PIT_RUNTIME_EVAL_INS_APPLY
+        PIT_TRAVERSAL_ENTRY_VALUE,
+        PIT_TRAVERSAL_ENTRY_DUMP_STRING,
+        PIT_TRAVERSAL_ENTRY_APPLICATION,
     } sort;
     union {
-        pit_value literal;
-        struct { i64 arity; pit_annotated_ref *annotation; } apply; 
+        pit_value value;
+        char *dump_string;
+        struct { i64 arity; pit_annotated_ref *annotation; } application; 
     } in;
-} pit_runtime_eval_ins;
-PIT_DECLARE_VEC(pit_runtime_eval_ins)
-void pit_runtime_eval_program_push_literal(struct pit_runtime *rt, pit_vec(pit_runtime_eval_ins) *s, pit_value x);
-void pit_runtime_eval_program_push_apply(struct pit_runtime *rt, pit_vec(pit_runtime_eval_ins) *s, i64 arity, pit_annotated_ref *annotation);
+} pit_traversal_entry;
+PIT_DECLARE_VEC(pit_traversal_entry)
+void pit_traversal_push_value(struct pit_runtime *rt, pit_vec(pit_traversal_entry) *s, pit_value x);
+void pit_traversal_push_dump_string(struct pit_runtime *rt, pit_vec(pit_traversal_entry) *s, char *m);
+void pit_traversal_push_application(struct pit_runtime *rt, pit_vec(pit_traversal_entry) *s, i64 arity, pit_annotated_ref *annotation);
 
 typedef struct pit_runtime {
     /* interpreter state */
@@ -58,12 +61,12 @@ typedef struct pit_runtime {
     pit_arena *backbuffer; /* additional allocation, the same size as the heap (used by GC) */
     pit_vec(pit_annotated_ref) *annotations;
     pit_vec(pit_annotated_ref) *backtrace; /* we reuse this vector for both backtraces and the GC */
-    pit_vec(pit_symtab_entry) *symtab;/* all symbols */
+    pit_vec(pit_symtab_entry) *symtab; /* all symbols */
     /* temporary/"scratch" memory */
     pit_vec(pit_value) *saved_bindings; /* stack used to save old values of bindings to be restored ("shallow binding") */
     pit_vec(pit_value) *expr_stack; /* stack of subexpressions to evaluate during evaluation */
     pit_vec(pit_value) *result_stack; /* stack of intermediate values during evaluation */
-    pit_vec(pit_runtime_eval_ins) *program; /* intermediate stack-based program constructed during evaluation */
+    pit_vec(pit_traversal_entry) *traversal; /* intermediate stack used during tree traversal */
     /* bookkeeping */
     /* "frozen" values offsets: values before these offsets are immutable, and we can reset here later */
     i64 frozen_values, frozen_symtab;

@@ -3,7 +3,7 @@
 pit_value pit_macroexpand(pit_runtime *rt, pit_value top) {
     i64 expr_stack_reset = rt->expr_stack->next;
     i64 result_stack_reset = rt->result_stack->next;
-    i64 program_reset = rt->program->next;
+    i64 traversal_reset = rt->traversal->next;
     if (pit_vec_push(pit_value)(rt->expr_stack, top) < 0)
         pit_error(rt, "macro expansion stack overflow");
     while (rt->expr_stack->next > expr_stack_reset) {
@@ -23,9 +23,9 @@ pit_value pit_macroexpand(pit_runtime *rt, pit_value top) {
                     pit_error(rt, "macro expansion stack overflow");
             } else if (is_symbol && pit_symtab_symbol_name_match_cstr(rt, fsym, "defer")) {
                 pit_value args = pit_value_cons_cdr(rt, cur);
-                pit_runtime_eval_program_push_literal(rt, rt->program, pit_value_cons_car(rt, args));
+                pit_traversal_push_value(rt, rt->traversal, pit_value_cons_car(rt, args));
             } else if (is_symbol && pit_symtab_symbol_name_match_cstr(rt, fsym, "quote")) {
-                pit_runtime_eval_program_push_literal(rt, rt->program, cur);
+                pit_traversal_push_value(rt, rt->traversal, cur);
             } else if (is_symbol && pit_symtab_symbol_name_match_cstr(rt, fsym, "lambda")) {
                 pit_value args = pit_value_cons_cdr(rt, cur);
                 pit_value bindings = pit_value_cons_car(rt, args);
@@ -40,8 +40,8 @@ pit_value pit_macroexpand(pit_runtime *rt, pit_value top) {
                     body = pit_value_cons_cdr(rt, body);
                     argcount += 1;
                 }
-                pit_runtime_eval_program_push_apply(rt, rt->program, argcount + 1, ann);
-                pit_runtime_eval_program_push_literal(rt, rt->program, fsym);
+                pit_traversal_push_application(rt, rt->traversal, argcount + 1, ann);
+                pit_traversal_push_value(rt, rt->traversal, fsym);
             } else {
                 pit_value args = pit_value_cons_cdr(rt, cur);
                 i64 argcount = 0;
@@ -56,46 +56,46 @@ pit_value pit_macroexpand(pit_runtime *rt, pit_value top) {
                     if (pit_vec_push(pit_value)(rt->expr_stack, fsym) < 0)
                         pit_error(rt, "macro expansion stack overflow");
                 }
-                pit_runtime_eval_program_push_apply(rt, rt->program, argcount, ann);
+                pit_traversal_push_application(rt, rt->traversal, argcount, ann);
                 if (is_symbol) {
-                    pit_runtime_eval_program_push_literal(rt, rt->program, fsym);
+                    pit_traversal_push_value(rt, rt->traversal, fsym);
                 }
             }
         } else {
-            pit_runtime_eval_program_push_literal(rt, rt->program, cur);
+            pit_traversal_push_value(rt, rt->traversal, cur);
         }
     }
-    for (i64 idx = rt->program->next - 1; idx >= program_reset; --idx) {
-        pit_runtime_eval_ins *ent = pit_vec_get(pit_runtime_eval_ins)(rt->program, idx);
-        if (ent == NULL) pit_error(rt, "macro expansion program invalid");
+    for (i64 idx = rt->traversal->next - 1; idx >= traversal_reset; --idx) {
+        pit_traversal_entry *ent = pit_vec_get(pit_traversal_entry)(rt->traversal, idx);
+        if (ent == NULL) pit_error(rt, "macro expansion traversal invalid");
         if (rt->error != PIT_NIL) goto end;
         switch (ent->sort) {
-        case PIT_RUNTIME_EVAL_INS_LITERAL:
-            if (pit_vec_push(pit_value)(rt->result_stack, ent->in.literal) < 0)
+        case PIT_TRAVERSAL_ENTRY_VALUE:
+            if (pit_vec_push(pit_value)(rt->result_stack, ent->in.value) < 0)
                 pit_error(rt, "macro expansion stack overflow");
             break;
-        case PIT_RUNTIME_EVAL_INS_APPLY: {
+        case PIT_TRAVERSAL_ENTRY_APPLICATION: {
             pit_value f = PIT_NIL;
             pit_value args = PIT_NIL;
             pit_value app = PIT_NIL;
             if (pit_vec_pop(pit_value)(rt->result_stack, &f) < 0)
                 pit_error(rt, "macro expansion stack underflow");
-            for (i64 i = 0; i < ent->in.apply.arity; ++i) {
+            for (i64 i = 0; i < ent->in.application.arity; ++i) {
                 pit_value a;
                 if (pit_vec_pop(pit_value)(rt->result_stack, &a) < 0)
                     pit_error(rt, "macro expansion stack underflow");
                 args = pit_value_cons(rt, a, args);
             }
             app = pit_value_cons(rt, f, args);
-            if (ent->in.apply.annotation != NULL) {
-                pit_annotation_set(rt, pit_value_as_ref(rt, app), ent->in.apply.annotation->annotation);
+            if (ent->in.application.annotation != NULL) {
+                pit_annotation_set(rt, pit_value_as_ref(rt, app), ent->in.application.annotation->annotation);
             }
             if (pit_vec_push(pit_value)(rt->result_stack, app) < 0)
                 pit_error(rt, "macro expansion stack overflow");
             break;
         }
         default:
-            pit_error(rt, "unknown program entry");
+            pit_error(rt, "unknown traversal entry");
             goto end;
         }
     }
@@ -105,7 +105,7 @@ end: {
             pit_error(rt, "macro expansion stack underflow");
         rt->expr_stack->next = expr_stack_reset;
         rt->result_stack->next = result_stack_reset;
-        rt->program->next = program_reset;
+        rt->traversal->next = traversal_reset;
         return ret;
     }
 }

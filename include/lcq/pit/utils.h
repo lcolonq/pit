@@ -34,5 +34,6 @@ int pit_libc_string_snprintf(char *buf, size_t len, char *format, ...);
 
 /* assorted utilities and debugging tools */
 #define pit_mul(result, a, b) *result = (i64) (a) * (i64) (b)
+static inline i64 pit_mod(i64 x, i64 m) { return (m + (x % m)) % m; }
 
 #endif
